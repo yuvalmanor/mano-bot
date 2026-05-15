@@ -1,0 +1,538 @@
+# TASKS.md — Mano Bot Build Tasks
+
+This file is Claude Code's build roadmap.
+
+---
+
+## How to Use
+
+When Yuval says **"proceed with the next task"**:
+1. Read this file
+2. Find the first task with status `🔲 Not started`
+3. Check the task's risk level — if 🔴, apply the full protocol before doing anything
+4. Execute the task completely
+5. Update status to `✅ Done` and add a one-line note to CHANGELOG.md
+
+When Yuval says **"what's the current task"** or **"where are we"**:
+- Report the current in-progress or next not-started task
+
+Never skip tasks. Never work on two tasks simultaneously.
+Always read CLAUDE.md before starting any task if you haven't in this session —
+especially the SentinelOne section.
+
+---
+
+## ⚠️ SentinelOne Protocol (read before every task)
+
+This machine runs SentinelOne EDR which previously quarantined all project files mid-session.
+The goal is to work in the best way possible while managing the risk.
+
+**Risk levels:**
+- 🟢 Safe — writing/editing files, git add/commit, reading files — proceed normally
+- 🟡 Caution — pip install, running Python scripts, git push — warn Yuval briefly, then proceed
+- 🔴 High risk — uvicorn, ngrok, outbound API calls, OAuth flows — full protocol below
+
+**Full protocol for any 🔴 step:**
+1. Tell Yuval exactly what you're about to do
+2. Explain why it may trigger SentinelOne
+3. Say: "Please commit and push all current work before I proceed."
+4. Also offer: "This step can alternatively be run via Claude Code on claude.ai (web) to avoid local risk."
+5. Wait for Yuval's go-ahead before executing anything
+
+**Bypass strategies (apply always, without compromising quality or security):**
+- Create files one at a time — not in rapid bulk
+- Install pip packages one at a time during first setup
+- Make API calls sequentially during development, not concurrently
+- Use unit tests with mocked HTTP for logic that doesn't need a live server
+- If ngrok + uvicorn together triggers SentinelOne: fall back to Railway for webhook testing (push → Railway auto-deploys → use Railway URL in Meta webhook settings)
+
+---
+
+## Task Table
+
+| # | Task | Status | Risk | Notes |
+|---|---|---|---|---|
+| 1 | Project scaffold | 🔲 Not started | 🟢 | |
+| 2 | Echo bot | 🔲 Not started | 🔴 | uvicorn + ngrok |
+| 3 | Claude integration | 🔲 Not started | 🔴 | outbound API calls |
+| 4 | Security layer | 🔲 Not started | 🟢 | code only, no network |
+| 5 | Notion integration | 🔲 Not started | 🔴 | outbound API calls |
+| 6 | Gmail integration | 🔲 Not started | 🔴 | outbound API calls + OAuth |
+| 7 | Google Calendar integration | 🔲 Not started | 🔴 | outbound API calls |
+| 8 | Google Drive integration | 🔲 Not started | 🔴 | outbound API calls |
+| 9 | Audit logging | 🔲 Not started | 🟢 | code only |
+| 10 | End-to-end testing | 🔲 Not started | 🔴 | full network activity |
+| 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |
+
+Status legend: 🔲 Not started | 🔄 In progress | ✅ Done | ⚠️ Blocked
+
+---
+
+## Task Specs
+
+---
+
+### Task 1 — Project Scaffold
+**Risk: 🟢 Safe — file creation only**
+
+**Goal:** Create the full repo structure with all placeholder files.
+
+Create files one at a time (SentinelOne caution — avoid rapid bulk file creation).
+
+**Files to create:**
+```
+main.py                    ← empty FastAPI app, health check GET / only
+config.py                  ← loads all env vars, fails loud if missing
+users.py                   ← user registry (Yuval + Eden)
+router.py                  ← stub only
+requirements.txt           ← all dependencies, pinned versions
+.env.example               ← all required env vars with empty values
+.gitignore                 ← .env, *.pyc, __pycache__, credentials*.json, SECRETS.md, audit.log, token_*.json
+Procfile                   ← web: uvicorn main:app --host 0.0.0.0 --port $PORT
+README.md                  ← project overview + local setup instructions
+whatsapp/__init__.py
+whatsapp/webhook.py        ← stub
+whatsapp/client.py         ← stub
+claude_agent/__init__.py
+claude_agent/agent.py      ← stub
+claude_agent/tools.py      ← empty list
+claude_agent/system_prompt.py  ← full system prompt as constant (spec below)
+integrations/__init__.py
+integrations/notion.py     ← stub
+integrations/gmail.py      ← stub
+integrations/calendar.py   ← stub
+integrations/drive.py      ← stub
+security/__init__.py
+security/auth.py           ← stub
+security/rate_limiter.py   ← stub
+security/audit.py          ← stub
+```
+
+**config.py must:**
+- Load from `.env` via python-dotenv
+- Validate all required vars on startup, raise a clear error if any are missing
+- Never log credential values
+
+**users.py must:**
+```python
+USERS = {
+    "+972542159121": {
+        "name": "Yuval",
+        "language": "he",
+        "permissions": ["notion", "gmail", "calendar", "drive", "idea_lab"]
+    },
+    "+972546900908": {
+        "name": "Eden",
+        "language": "he",
+        "permissions": []
+    }
+}
+
+def get_user(phone: str) -> dict | None:
+    return USERS.get(phone)
+
+def is_authorized(phone: str) -> bool:
+    return phone in USERS
+
+def has_permission(phone: str, integration: str) -> bool:
+    user = get_user(phone)
+    return user is not None and integration in user.get("permissions", [])
+```
+
+**system_prompt.py must contain:**
+```python
+SYSTEM_PROMPT = """
+You are a personal AI assistant for Yuval, operating via WhatsApp.
+
+## Identity & Language
+- You are Yuval's personal assistant, sharp, efficient, and direct
+- Default language: Hebrew
+- Switch to English only if Yuval explicitly asks
+- Use informal Hebrew (אתה)
+
+## Users
+- Yuval (+972542159121): full access to all integrations
+- Eden (+972546900908): Hebrew, no Notion access, Gmail/Calendar/Drive TBD
+
+## Behavior Rules
+- Always confirm before executing any action (Notion, Gmail, Calendar, Drive)
+- Summarize what you're about to do and ask "לאשר?" before writing
+- Be concise — this is WhatsApp, not email
+- No unnecessary filler or pleasantries
+
+## Service Routing
+- Specific date/time + event/appointment → Google Calendar
+- Task/todo language → Notion
+- Email/Drive language → Gmail / Google Drive
+- "יש לי רעיון" → Idea Lab
+- Gray area (unclear if task or event) → ask: "זה משימה ב-Notion או אירוע ביומן?"
+
+## Notion — Structure
+Buckets: Business, Career, Self Improvement, Personal, Productive Ideas, Job,
+Health, Fitness, Family & Friends, Journal, Relationship, Admin, Marketing,
+Economics, Study
+
+When adding a task:
+- Infer the bucket from context
+- Confirm with user before saving: "אוסיף משימה '[name]' תחת [bucket]. לאשר?"
+
+Task listing format: per bucket → per day → per priority
+
+## Gmail
+- #personal → yuvalmanor@gmail.com
+- #cgm → yuval.cgm@gmail.com
+- #deals → deals@cgm-ventures.com
+- Always confirm before sending
+- Write emails in casual, human, everyday language — not bot language
+- Never use "—" or other LLM-style punctuation
+
+## Google Drive
+- #personal → yuvalmanor@gmail.com (personal drive)
+- #cgm → yuval.cgm@gmail.com (CGM general, rarely used)
+- #deals → deals@cgm-ventures.com (LLC docs, property management)
+
+## Google Calendar
+- Single calendar: yuvalmanor@gmail.com
+- Always confirm before creating/editing events
+
+## SMS & Messaging
+- Write in casual, human, everyday language — not bot language
+- Never use "—" or other LLM-style punctuation
+
+## Idea Lab
+- Activated on demand only
+- Example: "תעבור על רעיון X ותצור משימות ב-HQ"
+"""
+```
+
+**Done when:** All files exist. No server started, no pip installs yet.
+
+---
+
+### Task 2 — Echo Bot
+**Risk: 🔴 High risk — uvicorn + ngrok**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to install packages, start a local server (uvicorn), and run ngrok to expose it. The combination of port binding and an outbound tunnel is what previously triggered SentinelOne. Please commit and push all current work before I proceed. Alternatively, this step can be run via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+**pip installs — one at a time:**
+```
+pip install fastapi
+pip install "uvicorn[standard]"
+pip install python-dotenv
+pip install httpx
+pip install requests
+```
+
+**Implement `whatsapp/webhook.py`:**
+- `parse_incoming(payload: dict) -> dict | None`
+  - Extracts: `from_phone`, `message_type`, `text`, `message_id`
+  - Returns `None` for status updates (delivered/read receipts) — silently ignored
+  - Handles missing/malformed payloads gracefully
+
+**Implement `whatsapp/client.py`:**
+- `send_message(to_phone: str, text: str) -> bool`
+  - POSTs to `https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages`
+  - Uses `WHATSAPP_ACCESS_TOKEN` from config
+  - Never logs the token itself
+  - Returns True on success, False on failure
+
+**Implement `main.py`:**
+- `GET /webhook` — Meta verification: check `hub.verify_token`, return `hub.challenge`
+- `POST /webhook` — parse → echo text → return 200
+- Always return 200 to Meta even on errors
+
+**Local testing:**
+- Write `tests/test_webhook.py` that mocks HTTP and tests parse_incoming + echo logic without a live server
+- For real WhatsApp webhook testing: run `uvicorn main:app --reload` + `ngrok http 8000`, update Meta webhook URL to the ngrok HTTPS URL
+- **If ngrok triggers SentinelOne:** fall back to Railway — push to main, Railway auto-deploys, use Railway URL in Meta webhook settings
+
+**Done when:** Echo works end-to-end — WhatsApp message in → identical message back.
+
+---
+
+### Task 3 — Claude Integration
+**Risk: 🔴 High risk — outbound HTTPS to Anthropic API**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to install the Anthropic SDK and make outbound HTTPS calls to api.anthropic.com. This may trigger SentinelOne. Please commit and push all current work before I proceed. Alternatively, this step can be run via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+**pip install:**
+```
+pip install anthropic
+```
+
+**Implement `claude_agent/agent.py`:**
+- `async def run(user_phone: str, message: str) -> str`
+  - Calls `claude-sonnet-4-20250514` with SYSTEM_PROMPT and empty tools list
+  - Max tokens: 1024
+  - Returns text reply
+  - On API error: returns Hebrew error message ("משהו השתבש, נסה שוב")
+
+**Implement `router.py`:**
+- `async def handle_message(from_phone: str, text: str) -> None`
+  - Calls `agent.run` → sends reply via `whatsapp.client.send_message`
+
+Update `main.py` POST /webhook to call `router.handle_message`.
+
+**Done when:** Hebrew conversation with Claude works end-to-end via WhatsApp.
+
+---
+
+### Task 4 — Security Layer
+**Risk: 🟢 Safe — code only, no network activity**
+
+**Goal:** Harden the bot before connecting any real integrations.
+**Must complete before Tasks 5–8.**
+
+**Implement `security/auth.py`:**
+- `verify_webhook_signature(payload_bytes: bytes, signature_header: str) -> bool`
+  - HMAC-SHA256 of payload using `WHATSAPP_APP_SECRET`
+  - `hmac.compare_digest` — constant-time comparison
+  - Return False if header missing or invalid
+- `authorize_sender(phone: str) -> bool`
+  - True only if phone in USERS
+  - Log unauthorized attempts (phone + timestamp only, no message content)
+
+**Implement `security/rate_limiter.py`:**
+- In-memory: dict of phone → deque of timestamps
+- `check_rate_limit(phone: str) -> bool` — max 20 msg / 10 min
+- `get_rate_limit_message() -> str` — Hebrew warning string
+
+**Implement `security/audit.py`:**
+- `log_action(phone: str, action_type: str, details: str, status: str) -> None`
+  - Appends to `audit.log`
+  - Format: `[ISO timestamp] | phone=MASKED | action=X | details=X | status=X`
+  - Phone masked to last 4 digits
+  - Never log message content
+
+**Pending action store in `claude_agent/agent.py`:**
+```python
+PENDING_ACTIONS: dict[str, dict] = {}
+TTL_MINUTES = 5
+CONFIRM_WORDS = {"כן", "yes", "אשר", "ok", "confirm", "כן."}
+CANCEL_WORDS  = {"לא", "no", "ביטול", "cancel", "בטל", "לא."}
+```
+
+**Update `main.py` POST /webhook pipeline:**
+```
+1. Verify webhook signature → 403 if invalid
+2. Parse payload → 200 if not a text message
+3. Authorize sender → if unknown → audit log + silent 200
+4. Check rate limit → if over → Hebrew warning + 200
+5. Route to handler
+```
+
+Add `BOT_ENABLED` check: if false → return 200 immediately, no processing.
+
+**Done when:** All security controls active. Verified via unit tests (no network needed).
+
+---
+
+### Task 5 — Notion Integration
+**Risk: 🔴 High risk — outbound HTTPS to Notion API**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to install notion-client and make outbound calls to the Notion API. This may trigger SentinelOne. Please commit and push all current work before I proceed. Alternatively, this step can be run via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+**pip install:**
+```
+pip install notion-client
+```
+
+**Implement `integrations/notion.py`:**
+```python
+async def add_task(title: str, bucket: str, due_date: str | None = None) -> bool
+async def list_tasks(filter_bucket: str | None = None) -> str
+async def add_idea(title: str, description: str | None = None) -> bool
+```
+- Use `NOTION_TOKEN`, `NOTION_TASK_DB_ID`, `NOTION_IDEAS_DB_ID`
+- `list_tasks` returns Hebrew-friendly string: bucket → due date → priority
+- Check `has_permission(phone, "notion")` before every call
+
+**Add to `claude_agent/tools.py`:**
+```python
+{
+    "name": "notion_add_task",
+    "description": "Add a task to Notion My Task List",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "bucket": {
+                "type": "string",
+                "enum": ["Business","Career","Self Improvement","Personal",
+                         "Productive Ideas","Job","Health","Fitness",
+                         "Family & Friends","Journal","Relationship",
+                         "Admin","Marketing","Economics","Study"]
+            },
+            "due_date": {"type": "string", "description": "ISO date string, optional"}
+        },
+        "required": ["title", "bucket"]
+    }
+},
+{
+    "name": "notion_list_tasks",
+    "description": "List tasks from Notion My Task List",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "filter_bucket": {"type": "string"}
+        }
+    }
+},
+{
+    "name": "notion_add_idea",
+    "description": "Add an idea to the Idea Lab",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "description": {"type": "string"}
+        },
+        "required": ["title"]
+    }
+}
+```
+
+Update `claude_agent/agent.py` to handle `tool_use` blocks.
+
+**Done when:** Add task → confirm → "כן" → task in Notion. Eden denied. List works.
+
+---
+
+### Task 6 — Gmail Integration
+**Risk: 🔴 High risk — outbound HTTPS + OAuth browser flow**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to set up Google OAuth (which opens a browser flow) and make outbound Gmail API calls. This is among the highest-risk steps — outbound HTTPS, token file writes, and a browser OAuth flow all at once. Please commit and push all current work before I proceed. Strongly recommend running this via Claude Code on claude.ai (web) to avoid local risk."
+
+Wait for Yuval's go-ahead.
+
+**pip installs — one at a time:**
+```
+pip install google-auth
+pip install google-auth-oauthlib
+pip install google-api-python-client
+```
+
+**OAuth scope:** `https://www.googleapis.com/auth/gmail.send` only
+**Token files:** `token_personal.json`, `token_cgm.json`, `token_deals.json` — all gitignored
+
+**Implement `integrations/gmail.py`:**
+```python
+async def send_email(to: str, subject: str, body: str, account_key: str) -> bool
+```
+- `account_key`: "personal" | "cgm" | "deals"
+- Check `has_permission(phone, "gmail")`
+
+**Claude tool:** `gmail_send_email` with fields: `to`, `subject`, `body`, `account_key`
+
+Document OAuth setup steps in README under "Google Auth Setup".
+
+**Done when:** Email sent from correct account, visible in Sent folder.
+
+---
+
+### Task 7 — Google Calendar Integration
+**Risk: 🔴 High risk — outbound HTTPS to Google Calendar API**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to make outbound calls to the Google Calendar API. Please commit and push all current work before I proceed. This step can also be run via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+**OAuth scope:** `https://www.googleapis.com/auth/calendar.events` only
+
+**Implement `integrations/calendar.py`:**
+```python
+async def create_event(title: str, start_datetime: str, end_datetime: str, description: str | None = None) -> bool
+async def list_upcoming_events(days: int = 7) -> str
+```
+- Check `has_permission(phone, "calendar")`
+
+**Claude tools:** `calendar_create_event`, `calendar_list_events`
+
+**Done when:** Event created in Calendar. Upcoming events listed correctly.
+
+---
+
+### Task 8 — Google Drive Integration
+**Risk: 🔴 High risk — outbound HTTPS to Google Drive API**
+
+⚠️ **Before starting, tell Yuval:**
+"I'm about to make outbound calls to the Google Drive API. Please commit and push all current work before I proceed. This step can also be run via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+**OAuth scope:** `https://www.googleapis.com/auth/drive.readonly` only
+
+**Implement `integrations/drive.py`:**
+```python
+async def search_files(query: str, account_key: str) -> str
+```
+- Returns file names + view links as clean list
+- Check `has_permission(phone, "drive")`
+- Read-only — no write operations
+
+**Claude tool:** `drive_search_files`
+
+**Done when:** File search returns name + link.
+
+---
+
+### Task 9 — Audit Logging
+**Risk: 🟢 Safe — code only, file writes only**
+
+**Goal:** Complete audit trail for all integration actions.
+
+Extend `security/audit.py` to cover:
+- Every Claude tool call attempted
+- Every confirmation and cancellation
+- Every write executed (success/failure)
+- Every unauthorized access attempt
+
+Add `GET /audit` endpoint:
+- Protected by `ADMIN_TOKEN` header
+- Returns last 50 lines of `audit.log`
+
+**Done when:** Full test session produces clean audit.log with no credential leakage.
+
+---
+
+### Task 10 — End-to-End Testing
+**Risk: 🔴 High risk — full network activity across all integrations**
+
+⚠️ **Before starting, tell Yuval:**
+"End-to-end testing involves running all integrations simultaneously — this is the highest network activity the bot produces. Please commit and push everything before I proceed. Strongly recommend running this phase via Claude Code on claude.ai (web)."
+
+Wait for Yuval's go-ahead.
+
+Run through every item in `TESTING.md`. Document results. Fix all failures before Task 11.
+
+**Done when:** All TESTING.md items marked ✅.
+
+---
+
+### Task 11 — Railway Production Deploy
+**Risk: 🟡 Caution — git push only**
+
+Tell Yuval you are about to push to production. Wait for a brief confirmation, then proceed.
+
+Steps:
+1. Verify all code is committed and pushed to `main`
+2. Confirm Railway auto-deployment succeeded (check deploy logs)
+3. Set all production env vars in Railway dashboard
+4. Update Meta webhook URL to Railway production domain
+5. Verify HTTPS enforced (Railway provides this)
+6. Test with real WhatsApp number (Rami Levy SIM when ready)
+7. Monitor logs for first 10 real messages
+8. Update CHANGELOG.md with v1.0.0 release entry
+
+**Done when:** Real WhatsApp message from Yuval's phone gets a correct Claude reply in production.

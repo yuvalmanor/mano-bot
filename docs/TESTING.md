@@ -1,0 +1,152 @@
+# TESTING.md — Mano Bot
+
+Manual test checklist. Updated during Task 10 (End-to-End Testing).
+Mark each test ✅ Pass or ❌ Fail with notes. Claude Code fills in results after Yuval runs tests.
+
+⚠️ **No ngrok.** All webhook testing goes through Railway. Push to Railway, use the Railway URL in Meta webhook settings.
+
+---
+
+## Local Setup (run before any test)
+
+```bash
+# Install dependencies (one package at a time — SentinelOne caution)
+pip install fastapi
+pip install uvicorn
+pip install python-dotenv
+# ... (see requirements.txt for full list)
+
+# Configure environment
+cp .env.example .env   # then fill in all values
+
+# Unit tests (no server, no network)
+pytest tests/
+
+# For webhook integration testing: push to Railway
+git add . && git commit -m "your message" && git push
+# Railway auto-deploys → use Railway URL in Meta webhook dashboard
+```
+
+---
+
+## Task 2 — Echo Bot
+
+| Test | Status | Notes |
+|---|---|---|
+| Unit tests pass (mocked HTTP, no server needed) | 🔲 | |
+| GET /webhook with correct verify_token → returns challenge | 🔲 | |
+| GET /webhook with wrong verify_token → 403 | 🔲 | |
+| Send WhatsApp message via Railway → receive identical echo back | 🔲 | |
+| Delivery/read receipts produce no reply | 🔲 | |
+
+---
+
+## Task 3 — Claude Integration
+
+| Test | Status | Notes |
+|---|---|---|
+| Send "שלום" → Hebrew reply from Claude (not echo) | 🔲 | |
+| Send English message → Claude replies in Hebrew by default | 🔲 | |
+| Send "reply in English" → Claude switches to English | 🔲 | |
+| Claude is concise and direct (no filler, no pleasantries) | 🔲 | |
+
+---
+
+## Task 4 — Security Layer
+
+| Test | Status | Notes |
+|---|---|---|
+| POST with missing X-Hub-Signature-256 → 403 | 🔲 | |
+| POST with wrong signature → 403 | 🔲 | |
+| POST with correct signature → processed normally | 🔲 | |
+| Message from unregistered phone → 200, no reply, audit log entry | 🔲 | |
+| 21st message from same phone in 10 min → Hebrew rate limit warning | 🔲 | |
+| Pending action not confirmed in 5 min → expired, user informed | 🔲 | |
+| Pending action cancelled with "לא" → cancelled, bot acks | 🔲 | |
+| BOT_ENABLED=false → all messages silently ignored, /health still works | 🔲 | |
+
+---
+
+## Task 5 — Notion Integration
+
+| Test | Status | Notes |
+|---|---|---|
+| "תוסיף משימה לקרוא מייל" → bot proposes with bucket, asks לאשר? | 🔲 | |
+| Reply "כן" → task appears in My Task List in Notion | 🔲 | |
+| Reply "לא" → bot confirms cancellation, no task created | 🔲 | |
+| "תראה לי את המשימות" → formatted list per bucket → date → priority | 🔲 | |
+| "תראה לי משימות ב-Business" → filtered list | 🔲 | |
+| "יש לי רעיון — chatbot לדיירים" → routes to Idea Lab, confirms | 🔲 | |
+| Idea appears in Idea Lab with status 🌱 Raw | 🔲 | |
+| Eden's phone sends task request → Hebrew denial | 🔲 | |
+
+---
+
+## Task 6 — Gmail Integration
+
+| Test | Status | Notes |
+|---|---|---|
+| "שלח מייל #personal ל-test@example.com" → bot drafts, confirms | 🔲 | |
+| Reply "כן" → email sent from yuvalmanor@gmail.com, appears in Sent | 🔲 | |
+| "שלח מייל #cgm ל-..." → sent from yuval.cgm@gmail.com | 🔲 | |
+| "שלח מייל #deals ל-..." → sent from deals@cgm-ventures.com | 🔲 | |
+| Email tone is casual, no "—" punctuation | 🔲 | |
+| Reply "לא" → email not sent, bot confirms cancellation | 🔲 | |
+
+---
+
+## Task 7 — Google Calendar Integration
+
+| Test | Status | Notes |
+|---|---|---|
+| "תוסיף פגישה עם רועי ביום ראשון ב-10" → bot proposes event, confirms | 🔲 | |
+| Reply "כן" → event appears in Google Calendar | 🔲 | |
+| "מה יש לי השבוע" → upcoming 7-day events listed | 🔲 | |
+| Ambiguous time → bot asks for clarification before confirming | 🔲 | |
+
+---
+
+## Task 8 — Google Drive Integration
+
+| Test | Status | Notes |
+|---|---|---|
+| "תמצא deal calculator #personal" → file name + link returned | 🔲 | |
+| "תמצא חוזה #deals" → searches deals@cgm-ventures.com Drive | 🔲 | |
+| File not found → "לא מצאתי קובץ כזה" | 🔲 | |
+
+---
+
+## Task 9 — Audit Logging
+
+| Test | Status | Notes |
+|---|---|---|
+| After test session: audit.log exists and has entries | 🔲 | |
+| All action types logged: message, tool calls, confirms, cancels, unauthorized | 🔲 | |
+| No credential values visible in audit.log | 🔲 | |
+| Phone numbers masked (last 4 digits only) | 🔲 | |
+| GET /audit with correct ADMIN_TOKEN → returns last 50 entries | 🔲 | |
+| GET /audit with wrong token → 403 | 🔲 | |
+
+---
+
+## Task 11 — Production (Railway)
+
+| Test | Status | Notes |
+|---|---|---|
+| Railway deploy succeeds (no build errors) | 🔲 | |
+| Meta webhook URL updated to Railway HTTPS domain | 🔲 | |
+| Real WhatsApp message from Yuval's phone → Claude reply | 🔲 | |
+| Add Notion task → confirm → in Notion | 🔲 | |
+| Send email #personal → confirm → sent | 🔲 | |
+| Create calendar event → confirm → in Calendar | 🔲 | |
+| Railway logs contain no message content | 🔲 | |
+
+---
+
+## Regression Log
+
+Add a row here whenever a bug is found and fixed, to prevent it recurring.
+
+| Date | Bug | Fix | Regression test |
+|---|---|---|---|
+| — | — | — | — |
