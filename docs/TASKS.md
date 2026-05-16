@@ -52,7 +52,7 @@ The goal is to work in the best way possible while managing the risk.
 
 | # | Task | Status | Risk | Notes |
 |---|---|---|---|---|
-| 1 | Project scaffold | 🔲 Not started | 🟢 | |
+| 1 | Project scaffold | ✅ Done | 🟢 | |
 | 2 | Echo bot | 🔲 Not started | 🔴 | uvicorn + ngrok |
 | 3 | Claude integration | 🔲 Not started | 🔴 | outbound API calls |
 | 4 | Security layer | 🔲 Not started | 🟢 | code only, no network |
@@ -100,7 +100,7 @@ claude_agent/system_prompt.py  ← full system prompt as constant (spec below)
 integrations/__init__.py
 integrations/notion.py     ← stub
 integrations/gmail.py      ← stub
-integrations/calendar.py   ← stub
+integrations/gcalendar.py   ← stub
 integrations/drive.py      ← stub
 security/__init__.py
 security/auth.py           ← stub
@@ -205,7 +205,13 @@ Task listing format: per bucket → per day → per priority
 """
 ```
 
-**Done when:** All files exist. No server started, no pip installs yet.
+**pip install (🟢 safe — install pytest now so tests work from Task 2 onward):**
+```
+pip install pytest
+pip install pytest-asyncio
+```
+
+**Done when:** All files exist and `pytest --collect-only` runs without error. No server started.
 
 ---
 
@@ -223,7 +229,6 @@ pip install fastapi
 pip install "uvicorn[standard]"
 pip install python-dotenv
 pip install httpx
-pip install requests
 ```
 
 **Implement `whatsapp/webhook.py`:**
@@ -236,12 +241,17 @@ pip install requests
 - `send_message(to_phone: str, text: str) -> bool`
   - POSTs to `https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages`
   - Uses `WHATSAPP_ACCESS_TOKEN` from config
+  - 10-second `httpx` timeout — returns False on timeout or HTTP error
   - Never logs the token itself
   - Returns True on success, False on failure
 
 **Implement `main.py`:**
 - `GET /webhook` — Meta verification: check `hub.verify_token`, return `hub.challenge`
-- `POST /webhook` — parse → echo text → return 200
+- `POST /webhook`:
+  1. Verify signature → 403 if invalid
+  2. Parse payload → if not a text message, return 200 immediately
+  3. **Return 200 immediately**, then process in a FastAPI `BackgroundTask` (Meta requires 200 within ~20 seconds; Claude + integration calls can exceed this)
+  4. Background task: echo text back
 - Always return 200 to Meta even on errors
 
 **Local testing:**
@@ -267,17 +277,31 @@ pip install anthropic
 ```
 
 **Implement `claude_agent/agent.py`:**
+
+```python
+CONVERSATION_HISTORY: dict[str, list[dict]] = {}  # phone → list of {role, content} dicts
+MAX_HISTORY_TURNS = 5  # user+assistant pairs; trimmed oldest-first when full
+```
+
 - `async def run(user_phone: str, message: str) -> str`
-  - Calls `claude-sonnet-4-20250514` with SYSTEM_PROMPT and empty tools list
-  - Max tokens: 1024
-  - Returns text reply
-  - On API error: returns Hebrew error message ("משהו השתבש, נסה שוב")
+  - Load history for `user_phone` (empty list if first message)
+  - Build messages list: history + new user message
+  - Call `claude-sonnet-4-6` with:
+    - System prompt: `SYSTEM_PROMPT` with `cache_control: {"type": "ephemeral"}` (prompt caching — reduces cost on repeated calls)
+    - Messages: history + current message
+    - Tools: empty list for now
+    - Max tokens: 1024
+  - Append user message + assistant reply to history; trim to last `MAX_HISTORY_TURNS` pairs
+  - Return text reply
+  - On API error: log error (no message content), return Hebrew error ("משהו השתבש, נסה שוב")
 
 **Implement `router.py`:**
 - `async def handle_message(from_phone: str, text: str) -> None`
-  - Calls `agent.run` → sends reply via `whatsapp.client.send_message`
+  - Wraps the entire body in `try/except Exception` — **a user must always get a reply**
+  - On any unhandled exception: log the error (no message content), send Hebrew fallback ("משהו השתבש, נסה שוב") via `whatsapp.client.send_message`
+  - Normal path: calls `agent.run` → sends reply via `whatsapp.client.send_message`
 
-Update `main.py` POST /webhook to call `router.handle_message`.
+Update `main.py` POST /webhook `BackgroundTask` to call `router.handle_message`.
 
 **Done when:** Hebrew conversation with Claude works end-to-end via WhatsApp.
 
@@ -310,6 +334,22 @@ Update `main.py` POST /webhook to call `router.handle_message`.
   - Phone masked to last 4 digits
   - Never log message content
 
+**Add to `main.py` — message deduplication store:**
+```python
+from collections import deque
+SEEN_MESSAGE_IDS: set[str] = set()
+SEEN_MESSAGE_IDS_QUEUE: deque[str] = deque(maxlen=1000)  # FIFO eviction
+
+def is_duplicate(message_id: str) -> bool:
+    if message_id in SEEN_MESSAGE_IDS:
+        return True
+    if len(SEEN_MESSAGE_IDS_QUEUE) == 1000:
+        SEEN_MESSAGE_IDS.discard(SEEN_MESSAGE_IDS_QUEUE[0])
+    SEEN_MESSAGE_IDS.add(message_id)
+    SEEN_MESSAGE_IDS_QUEUE.append(message_id)
+    return False
+```
+
 **Pending action store in `claude_agent/agent.py`:**
 ```python
 PENDING_ACTIONS: dict[str, dict] = {}
@@ -317,17 +357,18 @@ TTL_MINUTES = 5
 CONFIRM_WORDS = {"כן", "yes", "אשר", "ok", "confirm", "כן."}
 CANCEL_WORDS  = {"לא", "no", "ביטול", "cancel", "בטל", "לא."}
 ```
+Overwrite behavior: if a new non-confirmation/non-cancellation message arrives while a pending action exists for that phone, discard the pending action silently and process the new message normally.
 
 **Update `main.py` POST /webhook pipeline:**
 ```
 1. Verify webhook signature → 403 if invalid
-2. Parse payload → 200 if not a text message
-3. Authorize sender → if unknown → audit log + silent 200
-4. Check rate limit → if over → Hebrew warning + 200
-5. Route to handler
+2. Check BOT_ENABLED → if false, return 200 immediately
+3. Parse payload → 200 if not a text message
+4. Deduplicate message_id → if seen, return 200 immediately (no processing)
+5. Authorize sender → if unknown → audit log + silent 200
+6. Check rate limit → if over → Hebrew warning + 200
+7. Return 200 immediately, enqueue BackgroundTask → route to handler
 ```
-
-Add `BOT_ENABLED` check: if false → return 200 immediately, no processing.
 
 **Done when:** All security controls active. Verified via unit tests (no network needed).
 
@@ -354,6 +395,7 @@ async def add_idea(title: str, description: str | None = None) -> bool
 ```
 - Use `NOTION_TOKEN`, `NOTION_TASK_DB_ID`, `NOTION_IDEAS_DB_ID`
 - `list_tasks` returns Hebrew-friendly string: bucket → due date → priority
+- All external calls: 10-second `httpx` timeout — on timeout return `False`/empty string, log to audit
 - Check `has_permission(phone, "notion")` before every call
 
 **Add to `claude_agent/tools.py`:**
@@ -423,18 +465,26 @@ pip install google-api-python-client
 ```
 
 **OAuth scope:** `https://www.googleapis.com/auth/gmail.send` only
-**Token files:** `token_personal.json`, `token_cgm.json`, `token_deals.json` — all gitignored
+
+**Two distinct credential types — do not confuse:**
+- `GOOGLE_CREDENTIALS_JSON` — static OAuth client credentials (client_id, client_secret) downloaded once from Google Cloud Console. Never changes. Already in `.env`.
+- `GOOGLE_TOKEN_PERSONAL`, `GOOGLE_TOKEN_CGM`, `GOOGLE_TOKEN_DEALS` — per-account user tokens obtained via the OAuth browser flow. **Stored as Railway env vars (base64-encoded JSON), not as files on disk** (Railway's filesystem is ephemeral — files are lost on redeploy). See D-015.
+
+**OAuth setup flow (run once per account, locally):**
+1. Run a one-off helper script that loads `GOOGLE_CREDENTIALS_JSON`, opens the browser flow, and prints the resulting token as base64
+2. Paste the base64 string into the Railway env var for that account
+3. Document exact steps in README under "Google Auth Setup"
 
 **Implement `integrations/gmail.py`:**
 ```python
 async def send_email(to: str, subject: str, body: str, account_key: str) -> bool
 ```
 - `account_key`: "personal" | "cgm" | "deals"
+- Load token from env var (`GOOGLE_TOKEN_PERSONAL` etc.), decode base64, construct `google.oauth2.credentials.Credentials`
+- All external calls: 10-second `httpx` timeout — on timeout return `False`, log to audit
 - Check `has_permission(phone, "gmail")`
 
 **Claude tool:** `gmail_send_email` with fields: `to`, `subject`, `body`, `account_key`
-
-Document OAuth setup steps in README under "Google Auth Setup".
 
 **Done when:** Email sent from correct account, visible in Sent folder.
 
@@ -450,11 +500,13 @@ Wait for Yuval's go-ahead.
 
 **OAuth scope:** `https://www.googleapis.com/auth/calendar.events` only
 
-**Implement `integrations/calendar.py`:**
+**Implement `integrations/gcalendar.py`:** (named `gcalendar` to avoid shadowing stdlib `calendar`)
 ```python
 async def create_event(title: str, start_datetime: str, end_datetime: str, description: str | None = None) -> bool
 async def list_upcoming_events(days: int = 7) -> str
 ```
+- Load token from `GOOGLE_TOKEN_PERSONAL` env var (same pattern as Gmail — base64-decoded JSON)
+- All external calls: 10-second `httpx` timeout — on timeout return `False`/empty string, log to audit
 - Check `has_permission(phone, "calendar")`
 
 **Claude tools:** `calendar_create_event`, `calendar_list_events`
@@ -478,6 +530,8 @@ Wait for Yuval's go-ahead.
 async def search_files(query: str, account_key: str) -> str
 ```
 - Returns file names + view links as clean list
+- Load token from the appropriate env var for `account_key` (same base64 pattern)
+- All external calls: 10-second `httpx` timeout — on timeout return empty string, log to audit
 - Check `has_permission(phone, "drive")`
 - Read-only — no write operations
 
@@ -490,9 +544,9 @@ async def search_files(query: str, account_key: str) -> str
 ### Task 9 — Audit Logging
 **Risk: 🟢 Safe — code only, file writes only**
 
-**Goal:** Complete audit trail for all integration actions.
+**Goal:** Extend the audit trail (started in Task 4) to cover all integration actions.
 
-Extend `security/audit.py` to cover:
+Extend `security/audit.py` to additionally cover:
 - Every Claude tool call attempted
 - Every confirmation and cancellation
 - Every write executed (success/failure)
@@ -523,16 +577,20 @@ Run through every item in `TESTING.md`. Document results. Fix all failures befor
 ### Task 11 — Railway Production Deploy
 **Risk: 🟡 Caution — git push only**
 
+**Note — no staging environment:** There is only one Railway environment. Use `BOT_ENABLED=false` as a manual gate: deploy with it false, verify the deploy succeeded, then flip it true only when ready. If something breaks in production, flip back to false instantly — no redeployment needed.
+
 Tell Yuval you are about to push to production. Wait for a brief confirmation, then proceed.
 
 Steps:
 1. Verify all code is committed and pushed to `main`
 2. Confirm Railway auto-deployment succeeded (check deploy logs)
-3. Set all production env vars in Railway dashboard
-4. Update Meta webhook URL to Railway production domain
-5. Verify HTTPS enforced (Railway provides this)
-6. Test with real WhatsApp number (Rami Levy SIM when ready)
-7. Monitor logs for first 10 real messages
+3. Set all production env vars in Railway dashboard (including all `GOOGLE_TOKEN_*` values)
+4. Set `BOT_ENABLED=false` initially
+5. Update Meta webhook URL to Railway production domain
+6. Verify HTTPS enforced (Railway provides this)
+7. Flip `BOT_ENABLED=true`
+8. Test with real WhatsApp number (Rami Levy prepaid SIM — Yuval's dedicated test number, separate from his personal number)
+9. Monitor logs for first 10 real messages
 8. Update CHANGELOG.md with v1.0.0 release entry
 
 **Done when:** Real WhatsApp message from Yuval's phone gets a correct Claude reply in production.

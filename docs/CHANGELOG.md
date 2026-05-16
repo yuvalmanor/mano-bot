@@ -32,6 +32,30 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - TASKS.md: every task now has a risk level (🟢/🟡/🔴) and pre-execution protocol for 🔴 tasks
 - DECISIONS.md: three new decisions documenting the hardened dev approach
 
+## [2026-05-15] — Design Revision: Remaining Gaps Closed
+- `whatsapp/client.py`: 10-second timeout specified (was missing while all integration clients had one)
+- `router.py`: top-level try/except guarantees user always receives a Hebrew reply, even on unhandled exceptions
+- Task 11: `BOT_ENABLED=false` gate formalised as the no-staging-env mitigation; deploy steps updated
+- SECURITY.md Known Gaps: token refresh failure mode clarified (manual revocation, not normal expiry)
+
+## [2026-05-15] — Design Revision: Production Gaps Addressed
+
+- D-004 updated: rolling 5-message conversation history (in-memory, resets on restart)
+- D-014 added: message deduplication via in-memory seen-ID set (prevents duplicate writes on Meta retry)
+- D-015 added: OAuth tokens stored as Railway env vars (not filesystem — Railway filesystem is ephemeral)
+- D-016 added: async webhook processing — return 200 immediately, process in BackgroundTask
+- D-017 added: pending action overwrite behavior defined (new message discards waiting action)
+- D-018 added: 10-second timeout on all external API calls, Hebrew error on timeout
+- SECURITY.md: renumbered controls, added deduplication as control #1, updated credential hygiene for token env vars
+- CLAUDE.md: env vars updated with GOOGLE_TOKEN_* vars, clarified GOOGLE_CREDENTIALS_JSON vs tokens
+- TASKS.md: pipeline, agent, and integration specs updated throughout
+
 ---
 
 <!-- Claude Code appends below this line after each completed task -->
+
+## [2026-05-15] — Task 1: Project Scaffold
+- Created repo structure: main.py, config.py, users.py, router.py, plus whatsapp/, claude_agent/, integrations/, security/ packages with stubs
+- requirements.txt pinned, .env.example with all required vars, .gitignore covering .env/tokens/audit.log, Procfile for Railway
+- system_prompt.py contains the locked SYSTEM_PROMPT constant
+- pytest + pytest-asyncio installed; `pytest --collect-only` runs cleanly (0 tests)

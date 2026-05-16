@@ -3,7 +3,7 @@
 Manual test checklist. Updated during Task 10 (End-to-End Testing).
 Mark each test ✅ Pass or ❌ Fail with notes. Claude Code fills in results after Yuval runs tests.
 
-⚠️ **No ngrok.** All webhook testing goes through Railway. Push to Railway, use the Railway URL in Meta webhook settings.
+⚠️ **ngrok is a 🔴 step.** Apply the full commit-before-execute protocol (CLAUDE.md) before running it. If ngrok triggers SentinelOne, fall back to Railway: push to main → Railway auto-deploys → use Railway URL in Meta webhook settings.
 
 ---
 
@@ -12,7 +12,7 @@ Mark each test ✅ Pass or ❌ Fail with notes. Claude Code fills in results aft
 ```bash
 # Install dependencies (one package at a time — SentinelOne caution)
 pip install fastapi
-pip install uvicorn
+pip install "uvicorn[standard]"
 pip install python-dotenv
 # ... (see requirements.txt for full list)
 

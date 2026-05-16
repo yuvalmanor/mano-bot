@@ -13,7 +13,7 @@ them through Claude with tool-use for integrations, and replies via WhatsApp.
 **Stack:**
 - Python 3.11+
 - FastAPI (webhook server)
-- Anthropic SDK — model: `claude-sonnet-4-20250514`
+- Anthropic SDK — model: `claude-sonnet-4-6`
 - Notion API via `notion-client`
 - Google APIs via `google-api-python-client` (Gmail, Calendar, Drive)
 - Hosted on Railway
@@ -93,7 +93,7 @@ Apply these to reduce behavioral footprint without compromising quality or secur
 - Work on two tasks simultaneously
 - Commit `.env`, credentials, or token files
 - Log credential values
-- Hardcode phone numbers or API keys
+- Hardcode phone numbers or API keys outside of `users.py` (the registry there is the single allowed exception)
 - Skip the confirmation step before any write operation
 - Execute a 🔴 step without the full protocol
 
@@ -103,13 +103,14 @@ Apply these to reduce behavioral footprint without compromising quality or secur
 
 ```
 mano-bot/
-├── CLAUDE.md              ← this file — read first
-├── TASKS.md               ← build roadmap — Claude Code's instructions
-├── SECURITY.md            ← threat model and security controls
-├── DECISIONS.md           ← architecture decisions with rationale
-├── CHANGELOG.md           ← updated after each completed task
-├── TESTING.md             ← test checklist and results
-├── README.md              ← setup instructions
+├── docs/
+│   ├── CLAUDE.md          ← this file — read first
+│   ├── TASKS.md           ← build roadmap — Claude Code's instructions
+│   ├── SECURITY.md        ← threat model and security controls
+│   ├── DECISIONS.md       ← architecture decisions with rationale
+│   ├── CHANGELOG.md       ← updated after each completed task
+│   └── TESTING.md         ← test checklist and results
+├── README.md              ← setup instructions (created in Task 1)
 ├── requirements.txt       ← pinned dependencies
 ├── .env.example           ← all required env vars (empty values)
 ├── .gitignore
@@ -132,7 +133,7 @@ mano-bot/
 └── integrations/
     ├── notion.py
     ├── gmail.py
-    ├── calendar.py
+    ├── gcalendar.py
     └── drive.py
 ```
 
@@ -151,11 +152,13 @@ ANTHROPIC_API_KEY
 NOTION_TOKEN
 NOTION_TASK_DB_ID
 NOTION_IDEAS_DB_ID
-GOOGLE_CREDENTIALS_JSON    # path to or JSON string of OAuth credentials
+GOOGLE_CREDENTIALS_JSON    # OAuth client credentials JSON from Google Cloud Console (static, never changes)
+GOOGLE_TOKEN_PERSONAL      # base64-encoded token JSON for yuvalmanor@gmail.com (set after OAuth flow)
+GOOGLE_TOKEN_CGM           # base64-encoded token JSON for yuval.cgm@gmail.com
+GOOGLE_TOKEN_DEALS         # base64-encoded token JSON for deals@cgm-ventures.com
 ADMIN_TOKEN                # for GET /audit endpoint
 BOT_ENABLED                # true/false kill switch
-YUVAL_PHONE=+972542159121
-EDEN_PHONE=+972546900908
+# Phone numbers are NOT env vars — they live in users.py (the registry)
 ```
 
 ---
