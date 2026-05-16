@@ -89,6 +89,16 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - Reinstalled `anthropic` (was missing from .venv post sandbox recovery) so router import chain resolves under pytest
 - All 47 tests passing (5 agent + 5 router + 22 webhook + 15 security)
 
+## [2026-05-16] — Task 5: Notion Integration
+- `integrations/notion.py`: direct Notion REST API via httpx with 10s timeout, expects DB schema (Name/Bucket/Due/Priority for tasks, Name/Description for ideas). `add_task`, `add_idea` return bool; `list_tasks(filter_bucket)` returns Hebrew-friendly string grouped by bucket → due → priority. All errors logged to audit, never raise.
+- `claude_agent/tools.py`: 3 Anthropic tool definitions (`notion_add_task` with 15-bucket enum, `notion_list_tasks`, `notion_add_idea`).
+- `claude_agent/agent.py`: rewritten with tool-use loop (MAX_TOOL_ITERATIONS=5). Maps tool name → required permission key (`notion_add_task`/`notion_list_tasks` → `notion`; `notion_add_idea` → `idea_lab`); denied calls return Hebrew error as `tool_result is_error=true` instead of dispatching. History stores only user/assistant text turns; tool_use/tool_result blocks live inside a single turn only.
+- `tests/test_notion.py` (10 tests): add_task happy path + due_date + HTTP error + timeout; add_idea with/without description; list_tasks empty/HTTP-error/with-bucket-filter; list_tasks formats by bucket with Hebrew title extraction.
+- `tests/test_agent.py` rewritten (9 tests): existing 5 tests updated to use typed mock blocks + stop_reason; 4 new tests for tool-use (authorized dispatch, Eden permission-denied tool_result, list_tasks dispatch, MAX_TOOL_ITERATIONS exhaustion).
+- README: full "Notion setup" section with exact links/URLs — integration creation at notion.so/profile/integrations, DB schemas with exact property names, the easy-to-miss "Connections → Connect to" step, DB ID extraction from URL, env var placement.
+- All 61 tests passing (47 prior + 14 new).
+- **Deferred:** live Notion verification — runs after `NOTION_TOKEN`/`NOTION_TASK_DB_ID`/`NOTION_IDEAS_DB_ID` are set up per README and a dedicated SIM unblocks Task 2b.
+
 ## [2026-05-16] — Task 3: Claude Integration
 - Installed anthropic SDK
 - `claude_agent/agent.py`: `async def run(user_phone, message)` with CONVERSATION_HISTORY dict, MAX_HISTORY_TURNS=5, calls claude-sonnet-4-6 with ephemeral cache_control, 1024 max_tokens, empty tools list; on API error returns Hebrew fallback "משהו השתבש, נסה שוב"

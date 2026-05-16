@@ -151,6 +151,71 @@ Back in Railway:
 - Verification failed → check that `BOT_ENABLED=true` and all four WhatsApp vars are set correctly
 - Message not echoed → check **Meta → WhatsApp → Configuration → Webhook → Recent Deliveries** for the HTTP status code Railway returned
 
+## Notion setup
+
+The Notion integration (Task 5) needs three env vars:
+
+```
+NOTION_TOKEN           # internal integration token (secret_xxx)
+NOTION_TASK_DB_ID      # database ID of "My Task List"
+NOTION_IDEAS_DB_ID     # database ID of "Idea Lab"
+```
+
+### 1. Create the internal integration
+
+1. Open **<https://www.notion.so/profile/integrations>** → click **"New integration"**
+2. Name: `Mano Bot` → Associated workspace: your personal workspace → **Save**
+3. On the integration page, copy the **Internal Integration Secret** (starts with `secret_` or `ntn_`). This is `NOTION_TOKEN`.
+4. Under **Capabilities** keep the defaults: Read content, Update content, Insert content. No user info needed.
+
+### 2. Create the two databases
+
+Inside your Notion workspace:
+
+**My Task List** — full-page database with these properties (exact names):
+
+| Property | Type | Notes |
+|---|---|---|
+| `Name` | Title | (default — already exists) |
+| `Bucket` | Select | Add the 15 options: Business, Career, Self Improvement, Personal, Productive Ideas, Job, Health, Fitness, Family & Friends, Journal, Relationship, Admin, Marketing, Economics, Study |
+| `Due` | Date | optional values |
+| `Priority` | Select | optional — used only for sort order in `list_tasks` |
+
+**Idea Lab** — full-page database:
+
+| Property | Type |
+|---|---|
+| `Name` | Title |
+| `Description` | Text |
+
+### 3. Connect each database to the integration
+
+For each database page:
+
+1. Click **`…`** (top-right) → **Connections** → **Connect to** → pick `Mano Bot`
+2. Confirm the access prompt
+
+Without this step, the integration token cannot see the database — Notion returns 404.
+
+### 4. Get each database ID
+
+Open the database as a full page. The URL looks like:
+
+```
+https://www.notion.so/yourworkspace/<DATABASE_ID>?v=<view_id>
+```
+
+`<DATABASE_ID>` is a 32-character hex string (with or without dashes). That value is `NOTION_TASK_DB_ID` (for My Task List) or `NOTION_IDEAS_DB_ID` (for Idea Lab).
+
+### 5. Set the env vars
+
+- Locally: add to `.env`
+- Railway: **Variables tab** → add the three keys
+
+### 6. Verify
+
+Send WhatsApp message: `תוסיף משימה לקנות חלב תחת Personal` → Mano should confirm (`לאשר?`) → reply `כן` → task appears in My Task List.
+
 ## Google Auth Setup
 
 Per-account OAuth tokens are obtained by a one-off local helper script, then
