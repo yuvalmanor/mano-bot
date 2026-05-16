@@ -54,6 +54,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 <!-- Claude Code appends below this line after each completed task -->
 
+## [2026-05-16] — Task 2b: Live echo test via Railway (partial)
+- Railway project created and deployed successfully (web-production-f95ae.up.railway.app)
+- All 14 env vars set in Railway (real WhatsApp credentials + placeholders for unused integrations)
+- Webhook URL registered in Meta, `messages` field subscribed
+- POST→200 confirmed via Meta dashboard "Test" button — plumbing is proven end-to-end
+- **Blocked:** real WhatsApp message→webhook delivery requires either (a) a dedicated SIM registered as the bot's WhatsApp Business number, or (b) Meta app publication. Personal number (+972542159121) cannot be registered — already a WhatsApp account. Meta test number is sandbox-only and doesn't receive real incoming messages.
+- **Resume when:** dedicated SIM acquired (any cheap prepaid, e.g. Rami Levy ~₪10)
+
 ## [2026-05-15] — Task 1: Project Scaffold
 - Created repo structure: main.py, config.py, users.py, router.py, plus whatsapp/, claude_agent/, integrations/, security/ packages with stubs
 - requirements.txt pinned, .env.example with all required vars, .gitignore covering .env/tokens/audit.log, Procfile for Railway
