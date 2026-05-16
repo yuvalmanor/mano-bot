@@ -53,7 +53,8 @@ The goal is to work in the best way possible while managing the risk.
 | # | Task | Status | Risk | Notes |
 |---|---|---|---|---|
 | 1 | Project scaffold | ✅ Done | 🟢 | |
-| 2 | Echo bot | 🟨 Code done, live test deferred | 🔴 | Code + 22 mocked tests passing; live webhook test will run via Railway in Task 11 |
+| 2 | Echo bot | 🟨 Code done, live test deferred | 🔴 | Code + 22 mocked tests passing; live webhook test will run via Railway in Task 2b |
+| 2b | Live echo test via Railway | 🔲 Not started | 🟡 | git push only; dashboard steps for Yuval |
 | 3 | Claude integration | 🔲 Not started | 🔴 | outbound API calls |
 | 4 | Security layer | 🔲 Not started | 🟢 | code only, no network |
 | 5 | Notion integration | 🔲 Not started | 🔴 | outbound API calls |
@@ -260,6 +261,28 @@ pip install httpx
 - **If ngrok triggers SentinelOne:** fall back to Railway — push to main, Railway auto-deploys, use Railway URL in Meta webhook settings
 
 **Done when:** Echo works end-to-end — WhatsApp message in → identical message back.
+
+---
+
+### Task 2b — Live Echo Test via Railway
+**Risk: 🟡 Caution — git push only (Claude's part); dashboard steps for Yuval**
+
+**Goal:** Validate the webhook plumbing end-to-end before building Claude integration on top of it.
+
+**Why before Task 3:** If signature verification, payload parsing, or the Meta→Railway→WhatsApp path is broken, better to know now than after layering Claude on top.
+
+**Claude's part (🟡):**
+- Confirm the code is pushed to `main` (already done at end of Task 2)
+- No code changes needed — the echo is already implemented
+
+**Yuval's part (dashboard steps, ~5 min):**
+1. Railway: create project → connect `mano-bot` GitHub repo → Railway auto-deploys on push
+2. Railway: set the env vars listed in README.md "Railway deploy + live WhatsApp echo test" section (echo-only set — Google/Notion can be placeholders)
+3. Railway: generate a domain (Settings → Domains)
+4. Meta: register webhook URL (`https://<railway-domain>/webhook`) with verify token; subscribe to `messages` field
+5. Send a WhatsApp message to the Meta test number → confirm echo arrives
+
+**Done when:** WhatsApp text in → same text echoed back, confirmed on a real device.
 
 ---
 

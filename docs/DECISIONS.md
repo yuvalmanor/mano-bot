@@ -160,3 +160,13 @@ Before overriding any decision, understand the rationale. If you do override, do
 **Decision:** For any 🔴 step, Claude Code offers running it via Claude Code on claude.ai (web) as an alternative to local execution. Yuval decides.
 **Rationale:** The Claude Desktop app on the corporate machine is subject to SentinelOne file quarantine. The web interface does not interact with the local filesystem the same way. For the highest-risk steps (OAuth flows, full integration testing), web is meaningfully safer.
 **Date:** 2026-05-15
+
+---
+
+### D-019 — Live echo test via Railway before Task 3, not at Task 11
+
+**Decision:** Do not defer the live WhatsApp webhook test to Task 11 (production deploy). Instead, run it as Task 2b via Railway immediately after the echo code lands, using placeholder env vars for everything except the four WhatsApp vars.
+**Rationale:** The echo is the foundation all later tasks build on. If signature verification, payload parsing, or the Meta→Railway→WhatsApp network path is broken, it's far cheaper to discover that before Claude integration, Notion, Gmail, etc. are layered on top. Shift the validation left.
+**Alternative rejected:** Testing at Task 11 — too late; a broken webhook would require re-testing all tasks.
+**Note:** ngrok is still avoided. Railway is 🟡 (git push only for Claude's part); Yuval sets up the Railway project and Meta webhook in the dashboard (~5 min).
+**Date:** 2026-05-16
