@@ -88,3 +88,4 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - Updated `tests/test_webhook.py` webhook tests to mock router.handle_message instead of removed send_message, renamed test names to reflect new routing
 - All 32 tests passing (5 agent + 5 router + 22 webhook)
 - **Deferred:** live Claude conversation via WhatsApp — will test via Railway in Task 2b once dedicated SIM available
+- **Recovery note:** original sandbox push was blocked by a 403 from its local git proxy; commit was exported via `git format-patch`, applied locally with `git am`, and pushed to `origin/main` (local hash `333a279`). Verified 32/32 tests pass on local Python 3.14.
