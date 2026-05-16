@@ -231,10 +231,58 @@ Send WhatsApp message: `תוסיף משימה לקנות חלב תחת Personal`
 
 ## Google Auth Setup
 
-Per-account OAuth tokens are obtained by a one-off local helper script, then
-stored as base64-encoded JSON in the Railway env vars `GOOGLE_TOKEN_PERSONAL`,
-`GOOGLE_TOKEN_CGM`, and `GOOGLE_TOKEN_DEALS`. Detailed steps are documented in
-Task 6 (`docs/TASKS.md`) and will be expanded here once that task lands.
+Per-account OAuth tokens are obtained by a one-off local helper script
+(`scripts/oauth_setup_google.py`) and stored as base64-encoded JSON in the
+Railway env vars `GOOGLE_TOKEN_PERSONAL`, `GOOGLE_TOKEN_CGM`, and
+`GOOGLE_TOKEN_DEALS`. We don't write token files to disk because Railway's
+filesystem is ephemeral (see D-015).
+
+### Prereqs (one-time, in Google Cloud Console)
+
+1. Open the [Google Cloud Console — APIs & Services](https://console.cloud.google.com/apis/dashboard) and select the project that owns the OAuth client (the same one that produced `GOOGLE_CREDENTIALS_JSON`)
+2. Go to **APIs & Services → Library** and enable: **Gmail API**, **Google Calendar API**, **Google Drive API**
+3. Go to **APIs & Services → OAuth consent screen → Audience**:
+   - User type: **External**
+   - Publishing status: **Testing**
+   - Under **Test users**, add: `yuvalmanor@gmail.com`, `yuval.cgm@gmail.com`, `deals@cgm-ventures.com`
+4. Confirm `GOOGLE_CREDENTIALS_JSON` is set in your **local `.env`** (it must be the full client-secret JSON on a single line — minify if needed)
+
+### Run the helper (once per account)
+
+🔴 SentinelOne risk: opens a browser window and listens on a local loopback port for the OAuth redirect. Strongly recommended to run this from Claude Code on claude.ai (web) instead — or commit and push all work first.
+
+For each account:
+```
+python scripts/oauth_setup_google.py personal
+python scripts/oauth_setup_google.py cgm
+python scripts/oauth_setup_google.py deals
+```
+
+What happens:
+1. Browser opens to a Google sign-in page → sign in with the EXACT account name printed by the script
+2. Approve the requested scopes (gmail.send, calendar.events, drive.readonly)
+3. Browser shows "The authentication flow has completed."
+4. The script prints a single long base64 line to stdout — that's your token
+
+### Paste the token into Railway
+
+For each account, in the [Railway dashboard](https://railway.com/) → **mano-bot service → Variables tab**:
+
+| account_key | Railway env var | Gmail address |
+|---|---|---|
+| `personal` | `GOOGLE_TOKEN_PERSONAL` | yuvalmanor@gmail.com |
+| `cgm`      | `GOOGLE_TOKEN_CGM`      | yuval.cgm@gmail.com |
+| `deals`    | `GOOGLE_TOKEN_DEALS`    | deals@cgm-ventures.com |
+
+Steps per variable:
+1. Click **+ New Variable**
+2. Name: the env var from the table above
+3. Value: the base64 line printed by the helper (no quotes, no newlines, no leading/trailing spaces)
+4. Save → Railway auto-redeploys
+
+### Verify
+
+After all three tokens are set, the next deploy should boot cleanly (config.py validates that all three env vars are present). End-to-end send test runs in Task 6b — send a WhatsApp message like `תשלח מייל ל-foo@bar.com מהאישי "Subject" "Body"`, Mano confirms (`לאשר?`), reply `כן` → email appears in the Sent folder of the matching account.
 
 ## Documentation
 

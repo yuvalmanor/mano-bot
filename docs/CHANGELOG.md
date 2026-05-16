@@ -54,6 +54,16 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 <!-- Claude Code appends below this line after each completed task -->
 
+## [2026-05-16] — Task 6a: Gmail integration (code + mocked tests)
+- `integrations/gmail.py`: `send_email(to, subject, body, account_key)` decodes the per-account base64 token from env (`GOOGLE_TOKEN_PERSONAL`/`_CGM`/`_DEALS`), builds a `Credentials` object, refreshes via `asyncio.to_thread` if expired, and POSTs an RFC 822 + base64url-encoded message to the Gmail REST API via httpx (10s timeout). All failure modes return False; never raises; never logs the access token.
+- `claude_agent/tools.py`: added `gmail_send_email` Anthropic tool with `to`/`subject`/`body`/`account_key` (enum: personal|cgm|deals); description nudges Claude to confirm with the user and avoid LLM-style punctuation per system prompt.
+- `claude_agent/agent.py`: dispatch wired for `gmail_send_email`; `TOOL_PERMISSIONS` extended (`gmail_send_email` → `gmail`) so Eden's denied calls return Hebrew error as `tool_result is_error=true` instead of dispatching.
+- `scripts/oauth_setup_google.py`: one-off helper that runs `InstalledAppFlow.run_local_server` with gmail.send + calendar.events + drive.readonly scopes, prints a single base64 line to stdout to paste into the matching Railway env var. 🔴 — opens browser + loopback port.
+- `tests/test_gmail.py` (12 tests): bad account key; missing/invalid base64/invalid JSON token; happy path with header + RFC822 body inspection; refresh-on-expired-creds; refresh-failure → False; HTTP error → False; httpx timeout → False; never-logs-token check; agent-level dispatch for Yuval (authorized) and Eden (permission_denied tool_result).
+- All 77 tests passing (65 prior + 12 new).
+- README: "Google Auth Setup" section expanded with Google Cloud Console prereqs (enable APIs, OAuth consent screen test users), exact helper invocations per account, Railway paste steps with a 3-row mapping table, and a verify step.
+- **Split rationale:** OAuth flow (browser + loopback) is 🔴 and live verification requires Task 2b SIM. Code/tests proceed now as Task 6a (🟡 — pip already installed in Task 1). Live OAuth + send verification is Task 6b.
+
 ## [2026-05-16] — Task 2b: Live echo test via Railway (partial)
 - Railway project created and deployed successfully (web-production-f95ae.up.railway.app)
 - All 14 env vars set in Railway (real WhatsApp credentials + placeholders for unused integrations)

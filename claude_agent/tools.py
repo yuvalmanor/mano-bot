@@ -64,4 +64,29 @@ TOOLS: list[dict] = [
             "required": ["title"],
         },
     },
+    {
+        "name": "gmail_send_email",
+        "description": (
+            "Send an email from one of Yuval's Gmail accounts. Always confirm "
+            "recipient, subject, body, and account with the user before calling. "
+            "Write the body in casual everyday language — no LLM-style punctuation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "account_key": {
+                    "type": "string",
+                    "enum": ["personal", "cgm", "deals"],
+                    "description": (
+                        "personal=yuvalmanor@gmail.com, cgm=yuval.cgm@gmail.com, "
+                        "deals=deals@cgm-ventures.com"
+                    ),
+                },
+            },
+            "required": ["to", "subject", "body", "account_key"],
+        },
+    },
 ]

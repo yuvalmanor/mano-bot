@@ -9,7 +9,7 @@ from anthropic import AsyncClient
 import config
 from claude_agent.system_prompt import SYSTEM_PROMPT
 from claude_agent.tools import TOOLS
-from integrations import notion
+from integrations import gmail, notion
 from security.audit import log_action
 from users import has_permission
 
@@ -33,6 +33,7 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_add_task": "notion",
     "notion_list_tasks": "notion",
     "notion_add_idea": "idea_lab",
+    "gmail_send_email": "gmail",
 }
 
 
@@ -51,6 +52,14 @@ async def _dispatch_tool(name: str, args: dict) -> str:
     if name == "notion_add_idea":
         ok = await notion.add_idea(
             title=args["title"], description=args.get("description")
+        )
+        return "ok" if ok else "error"
+    if name == "gmail_send_email":
+        ok = await gmail.send_email(
+            to=args["to"],
+            subject=args["subject"],
+            body=args["body"],
+            account_key=args["account_key"],
         )
         return "ok" if ok else "error"
     return f"unknown tool: {name}"
