@@ -34,3 +34,17 @@ def log_action(phone: str, action_type: str, details: str, status: str) -> None:
             f.write(line)
     except OSError as exc:
         logger.error("Failed to write audit log: %s", exc.__class__.__name__)
+
+
+def tail(n: int = 50) -> list[str]:
+    """Return the last ``n`` lines of the audit log (oldest first).
+
+    Returns an empty list if the file does not exist or cannot be read. Never
+    raises — used by the admin endpoint, must not break the request path.
+    """
+    try:
+        with open(AUDIT_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    return [ln.rstrip("\n") for ln in lines[-n:]]

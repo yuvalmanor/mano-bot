@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 
+from claude_agent.agent import CANCEL_WORDS, CONFIRM_WORDS
 from claude_agent.agent import run as run_claude
+from security.audit import log_action
 from whatsapp.client import send_message
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,11 @@ async def handle_message(from_phone: str, text: str) -> None:
     even on unhandled exceptions. On any error, sends the Hebrew fallback message.
     """
     try:
+        normalized = text.strip().lower()
+        if normalized in CONFIRM_WORDS:
+            log_action(from_phone, "user_confirm", "", "received")
+        elif normalized in CANCEL_WORDS:
+            log_action(from_phone, "user_cancel", "", "received")
         reply = await run_claude(from_phone, text)
         await send_message(from_phone, reply)
     except Exception as exc:

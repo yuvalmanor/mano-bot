@@ -64,7 +64,7 @@ The goal is to work in the best way possible while managing the risk.
 | 7b | Google Calendar — live verification | 🔲 Not started | 🔴 | gated on Task 2b SIM, same as Tasks 3/5/6b |
 | 8a | Google Drive — code + mocked tests | ✅ Done | 🟡 | `integrations/drive.py` (read-only) + `drive_search_files` tool + 13 tests (107 total) passing; OAuth helper already includes `drive.readonly` scope, so existing GOOGLE_TOKEN_* should work in 8b without re-OAuth |
 | 8b | Google Drive — live verification | 🔲 Not started | 🔴 | gated on Task 2b SIM, same as Tasks 3/5/6b/7b |
-| 9 | Audit logging | 🔲 Not started | 🟢 | code only |
+| 9 | Audit logging | ✅ Done | 🟢 | `GET /audit` admin endpoint + `audit.tail()` helper + confirm/cancel logging at router; 9 new tests (116 total) passing. Tool invocations / write outcomes / unauthorized attempts were already logged across the integrations and security layer. |
 | 10 | End-to-end testing | 🔲 Not started | 🔴 | full network activity |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |
 

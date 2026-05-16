@@ -10,7 +10,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 import config
 import router
-from security.audit import log_action
+from security.audit import log_action, tail as audit_tail
 from security.auth import authorize_sender, verify_webhook_signature
 from security.rate_limiter import check_rate_limit, get_rate_limit_message
 from whatsapp.client import send_message
@@ -43,6 +43,22 @@ def is_duplicate(message_id: str) -> bool:
 @app.get("/")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/audit")
+async def get_audit(request: Request) -> Response:
+    """Return the last 50 audit log lines. Requires ``X-Admin-Token`` header.
+
+    Constant-time token comparison — 403 on missing or wrong token. The
+    response is plain text (one log line per row) so it stays readable in a
+    terminal or browser without JSON tooling.
+    """
+    import hmac as _hmac
+    provided = request.headers.get("x-admin-token", "")
+    if not provided or not _hmac.compare_digest(provided, config.ADMIN_TOKEN):
+        return Response(status_code=403)
+    body = "\n".join(audit_tail(50))
+    return Response(content=body, media_type="text/plain", status_code=200)
 
 
 @app.get("/webhook")

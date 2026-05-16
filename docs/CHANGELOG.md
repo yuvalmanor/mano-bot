@@ -6,6 +6,12 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-16] — Task 9: Audit endpoint + confirm/cancel logging
+- Added `GET /audit` admin endpoint protected by `X-Admin-Token` (constant-time compare), returns last 50 lines as text/plain
+- Added `security.audit.tail(n)` helper for reading recent log lines
+- Router now audit-logs `user_confirm` / `user_cancel` when an incoming message matches the existing CONFIRM_WORDS / CANCEL_WORDS sets (case-insensitive, trimmed)
+- 9 new tests (116 total) passing. Tool invocations, write outcomes, and unauthorized attempts were already covered across integrations + security layer.
+
 ## [2026-05-16] — Task 8a: Google Drive code + mocked tests
 - Implemented `integrations/drive.py` (`search_files`, read-only) using the same base64-env-var token pattern as gmail/gcalendar; query escaping handles apostrophes
 - Added `drive_search_files` Claude tool + agent dispatch + `drive` permission mapping
