@@ -59,7 +59,7 @@ The goal is to work in the best way possible while managing the risk.
 | 4 | Security layer | ✅ Done | 🟢 | auth allowlist, rate limiter, audit log, dedup, kill switch, pending-action store; 15 new tests (47 total) passing |
 | 5 | Notion integration | ✅ Done | 🔴 | Adapter aligned with real schema (Task/Idea titles + Bucket relation to My Life Buckets); 18 Notion tests (65 total) passing; Mano Bot connected to Headquarters + Idea Lab parent pages; 4 NOTION_* env vars set in Railway; live WhatsApp verification deferred until Task 2b SIM available |
 | 6a | Gmail integration — code + mocked tests | ✅ Done | 🟡 | `integrations/gmail.py` + Claude tool + 12 tests (77 total) passing; OAuth helper script at `scripts/oauth_setup_google.py`; README "Google Auth Setup" expanded |
-| 6b | Gmail integration — live OAuth + verification | 🔲 Not started | 🔴 | run `oauth_setup_google.py` 3× (personal/cgm/deals), paste tokens into Railway, live WhatsApp send test (deferred — gated by Task 2b SIM and OAuth flow risk; consider running on claude.ai web) |
+| 6b | Gmail integration — live OAuth + verification | 🟨 Tokens live, end-to-end deferred | 🟡 | OAuth flow run 3× (personal/cgm/deals) via new `--manual` mode (port-binding-free); 3× `GOOGLE_TOKEN_*` set in Railway; Railway redeploy active. Fixed missing `NOTION_BUCKETS_DB_ID` along the way. Live WhatsApp→Gmail send test deferred — gated on Task 2b SIM, same as Tasks 3 and 5. |
 | 7 | Google Calendar integration | 🔲 Not started | 🔴 | outbound API calls |
 | 8 | Google Drive integration | 🔲 Not started | 🔴 | outbound API calls |
 | 9 | Audit logging | 🔲 Not started | 🟢 | code only |

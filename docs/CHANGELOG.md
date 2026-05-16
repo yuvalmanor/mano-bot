@@ -54,6 +54,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 <!-- Claude Code appends below this line after each completed task -->
 
+## [2026-05-16] — Task 6b: Live OAuth tokens in Railway (end-to-end deferred)
+- `scripts/oauth_setup_google.py` extended with `--manual` flow: prints auth URL, user signs in in their own browser, copies the failed-redirect URL (browser shows ERR_CONNECTION_REFUSED on http://localhost:8765, expected — no listener), pastes back, script extracts the code and POSTs once to oauth2.googleapis.com/token. No port binding, drops the OAuth risk from 🔴 to 🟡. README "Run the helper" section rewritten with the manual walkthrough.
+- Discovered loopback flow won't work cross-machine for Desktop OAuth clients (the original "run on Claude Code web" plan), pivoted to the manual flow.
+- Set `OAUTHLIB_INSECURE_TRANSPORT=1` in the manual flow so oauthlib will parse the http://localhost authorization_response (loopback only, documented workaround).
+- Ran OAuth 3× locally (personal/cgm/deals), one base64 token pasted into each of `GOOGLE_TOKEN_PERSONAL` / `GOOGLE_TOKEN_CGM` / `GOOGLE_TOKEN_DEALS` in Railway. First personal-token attempt was leaked into chat context — revoked at myaccount.google.com/permissions, re-issued, never reshared. Tokens never written back to local .env.
+- Railway boot crashed on first redeploy with `RuntimeError: Missing required environment variables: NOTION_BUCKETS_DB_ID` — unrelated to Gmail, just an orphaned gap from Task 5. Set the var to `2dd484a7ece581618bc0f697560561dd` (My Life Buckets DB page ID), Railway redeployed clean → Active.
+- **Deferred:** live WhatsApp → Gmail send test (`תשלח מייל ל-... מהאישי "x" "y"` → confirm → `כן` → check Sent folder). Same blocker as Tasks 3/5: needs the dedicated SIM from Task 2b.
+
 ## [2026-05-16] — Task 6a: Gmail integration (code + mocked tests)
 - `integrations/gmail.py`: `send_email(to, subject, body, account_key)` decodes the per-account base64 token from env (`GOOGLE_TOKEN_PERSONAL`/`_CGM`/`_DEALS`), builds a `Credentials` object, refreshes via `asyncio.to_thread` if expired, and POSTs an RFC 822 + base64url-encoded message to the Gmail REST API via httpx (10s timeout). All failure modes return False; never raises; never logs the access token.
 - `claude_agent/tools.py`: added `gmail_send_email` Anthropic tool with `to`/`subject`/`body`/`account_key` (enum: personal|cgm|deals); description nudges Claude to confirm with the user and avoid LLM-style punctuation per system prompt.
