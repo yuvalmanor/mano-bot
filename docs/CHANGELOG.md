@@ -77,3 +77,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - `tests/test_webhook.py` (22 tests, all green): parse_incoming branches, send_message success/HTTP-error/timeout/no-token-leak, signature verify happy & sad paths, GET handshake, POST signature rejection, POST echoes text, POST ignores status updates, POST tolerates non-JSON
 - conftest.py at repo root populates dummy env vars before config import (only fills empty/unset vars)
 - **Deferred:** live uvicorn+ngrok end-to-end test against Meta — will run via Railway deploy in Task 11 instead of local ngrok
+
+## [2026-05-16] — Task 3: Claude Integration
+- Installed anthropic SDK
+- `claude_agent/agent.py`: `async def run(user_phone, message)` with CONVERSATION_HISTORY dict, MAX_HISTORY_TURNS=5, calls claude-sonnet-4-6 with ephemeral cache_control, 1024 max_tokens, empty tools list; on API error returns Hebrew fallback "משהו השתבש, נסה שוב"
+- `router.py`: `async def handle_message(from_phone, text)` wraps entire flow in try/except, calls agent.run, sends reply via whatsapp.client.send_message, sends Hebrew fallback on any exception
+- `main.py`: updated POST /webhook BackgroundTask to call router.handle_message instead of _echo_task
+- `tests/test_agent.py` (5 tests): single message, conversation history, history trimming (while-loop to enforce MAX_HISTORY_TURNS), API error handling, separate histories per user
+- `tests/test_router.py` (5 tests): normal path, Claude error fallback, WhatsApp send error fallback (nested try/except), unhandled exception fallback, different phone routing
+- Updated `tests/test_webhook.py` webhook tests to mock router.handle_message instead of removed send_message, renamed test names to reflect new routing
+- All 32 tests passing (5 agent + 5 router + 22 webhook)
+- **Deferred:** live Claude conversation via WhatsApp — will test via Railway in Task 2b once dedicated SIM available

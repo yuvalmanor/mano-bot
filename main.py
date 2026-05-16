@@ -1,8 +1,4 @@
-"""FastAPI entry point.
-
-Task 2: WhatsApp webhook — GET verification + POST (signature-verified) that
-returns 200 immediately and echoes the message back in a BackgroundTask.
-"""
+"""FastAPI entry point with Claude integration."""
 
 from __future__ import annotations
 
@@ -12,8 +8,8 @@ import logging
 from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 import config
+import router
 from security.auth import verify_webhook_signature
-from whatsapp.client import send_message
 from whatsapp.webhook import parse_incoming
 
 logging.basicConfig(level=logging.INFO)
@@ -39,18 +35,11 @@ async def verify_webhook(request: Request) -> Response:
     return Response(status_code=403)
 
 
-async def _echo_task(to_phone: str, text: str) -> None:
-    """Background task: echo the text back to the sender."""
-    ok = await send_message(to_phone, text)
-    if not ok:
-        logger.error("Echo failed for message to ****%s", to_phone[-4:])
-
-
 @app.post("/webhook")
 async def receive_webhook(
     request: Request, background_tasks: BackgroundTasks
 ) -> Response:
-    """Receive a WhatsApp message. Verify signature, then echo in background.
+    """Receive a WhatsApp message. Verify signature, then route to Claude in background.
 
     Always returns 200 to Meta on parseable/authorized requests so they don't
     retry. Returns 403 only when the signature is invalid.
@@ -70,5 +59,7 @@ async def receive_webhook(
     if parsed is None:
         return Response(status_code=200)
 
-    background_tasks.add_task(_echo_task, parsed["from_phone"], parsed["text"])
+    background_tasks.add_task(
+        router.handle_message, parsed["from_phone"], parsed["text"]
+    )
     return Response(status_code=200)

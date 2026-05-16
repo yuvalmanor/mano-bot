@@ -230,9 +230,9 @@ def test_post_webhook_rejects_invalid_signature() -> None:
     assert resp.status_code == 403
 
 
-def test_post_webhook_echoes_text_message() -> None:
-    fake_send = AsyncMock(return_value=True)
-    with patch("main.send_message", fake_send):
+def test_post_webhook_handles_text_message() -> None:
+    fake_handler = AsyncMock()
+    with patch("router.handle_message", fake_handler):
         client = TestClient(main.app)
         body = json.dumps(_text_payload("שלום", "+972542159121")).encode("utf-8")
         resp = client.post(
@@ -241,11 +241,11 @@ def test_post_webhook_echoes_text_message() -> None:
             headers={"X-Hub-Signature-256": _sign(body)},
         )
     assert resp.status_code == 200
-    fake_send.assert_awaited_once_with("+972542159121", "שלום")
+    fake_handler.assert_called_once_with("+972542159121", "שלום")
 
 
 def test_post_webhook_ignores_status_update() -> None:
-    fake_send = AsyncMock(return_value=True)
+    fake_handler = AsyncMock()
     status_payload = {
         "entry": [
             {
@@ -256,7 +256,7 @@ def test_post_webhook_ignores_status_update() -> None:
         ]
     }
     body = json.dumps(status_payload).encode("utf-8")
-    with patch("main.send_message", fake_send):
+    with patch("router.handle_message", fake_handler):
         client = TestClient(main.app)
         resp = client.post(
             "/webhook",
@@ -264,7 +264,7 @@ def test_post_webhook_ignores_status_update() -> None:
             headers={"X-Hub-Signature-256": _sign(body)},
         )
     assert resp.status_code == 200
-    fake_send.assert_not_awaited()
+    fake_handler.assert_not_called()
 
 
 def test_post_webhook_non_json_body_returns_200() -> None:
