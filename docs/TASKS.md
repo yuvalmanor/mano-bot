@@ -53,7 +53,7 @@ The goal is to work in the best way possible while managing the risk.
 | # | Task | Status | Risk | Notes |
 |---|---|---|---|---|
 | 1 | Project scaffold | ✅ Done | 🟢 | |
-| 2 | Echo bot | 🔲 Not started | 🔴 | uvicorn + ngrok |
+| 2 | Echo bot | 🟨 Code done, live test deferred | 🔴 | Code + 22 mocked tests passing; live webhook test will run via Railway in Task 11 |
 | 3 | Claude integration | 🔲 Not started | 🔴 | outbound API calls |
 | 4 | Security layer | 🔲 Not started | 🟢 | code only, no network |
 | 5 | Notion integration | 🔲 Not started | 🔴 | outbound API calls |

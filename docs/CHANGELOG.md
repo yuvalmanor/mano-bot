@@ -59,3 +59,13 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - requirements.txt pinned, .env.example with all required vars, .gitignore covering .env/tokens/audit.log, Procfile for Railway
 - system_prompt.py contains the locked SYSTEM_PROMPT constant
 - pytest + pytest-asyncio installed; `pytest --collect-only` runs cleanly (0 tests)
+
+## [2026-05-16] — Task 2: Echo Bot (code + tests; live webhook test deferred)
+- Installed fastapi, uvicorn[standard], python-dotenv, httpx one at a time (SentinelOne bypass)
+- `whatsapp/webhook.py` `parse_incoming`: extracts from_phone/message_type/text/message_id; ignores status updates, non-text messages, malformed payloads
+- `whatsapp/client.py` `send_message`: POST to Graph API v19.0 with 10s httpx timeout; returns False on timeout/HTTP error; never logs the access token
+- `security/auth.py` `verify_webhook_signature`: HMAC-SHA256 with constant-time compare (pulled forward from Task 4 since main.py needs it)
+- `main.py`: GET /webhook verification handshake; POST /webhook verifies signature → 403, parses → echoes via FastAPI BackgroundTask, always 200 on parseable requests
+- `tests/test_webhook.py` (22 tests, all green): parse_incoming branches, send_message success/HTTP-error/timeout/no-token-leak, signature verify happy & sad paths, GET handshake, POST signature rejection, POST echoes text, POST ignores status updates, POST tolerates non-JSON
+- conftest.py at repo root populates dummy env vars before config import (only fills empty/unset vars)
+- **Deferred:** live uvicorn+ngrok end-to-end test against Meta — will run via Railway deploy in Task 11 instead of local ngrok
