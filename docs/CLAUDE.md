@@ -158,6 +158,9 @@ GOOGLE_CREDENTIALS_JSON    # OAuth client credentials JSON from Google Cloud Con
 GOOGLE_TOKEN_PERSONAL      # base64-encoded token JSON for yuvalmanor@gmail.com (set after OAuth flow)
 GOOGLE_TOKEN_CGM           # base64-encoded token JSON for yuval.cgm@gmail.com
 GOOGLE_TOKEN_DEALS         # base64-encoded token JSON for deals@cgm-ventures.com
+# Note: edeng.cgm@gmail.com (Eden) is enrolled as a Cloud Console test user but
+# the bot does not currently access it — no GOOGLE_TOKEN_EDEN, no permissions
+# in users.py. Wire up if/when Eden gets Google access.
 ADMIN_TOKEN                # for GET /audit endpoint
 BOT_ENABLED                # true/false kill switch
 # Phone numbers are NOT env vars — they live in users.py (the registry)

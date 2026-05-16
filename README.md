@@ -244,7 +244,8 @@ filesystem is ephemeral (see D-015).
 3. Go to **APIs & Services → OAuth consent screen → Audience**:
    - User type: **External**
    - Publishing status: **Testing**
-   - Under **Test users**, add: `yuvalmanor@gmail.com`, `yuval.cgm@gmail.com`, `deals@cgm-ventures.com`
+   - Under **Test users**, add: `yuvalmanor@gmail.com`, `yuval.cgm@gmail.com`, `deals@cgm-ventures.com`, `edeng.cgm@gmail.com`
+   - `edeng.cgm@gmail.com` (Eden) is enrolled as a test user so future Eden-side Google access can be turned on without re-touching the consent screen. The bot does **not** currently use it — Eden has no Google permissions in `users.py` and there is no `GOOGLE_TOKEN_EDEN` env var. Enable later by adding the permission(s) to `USERS["+972546900908"]` and adding a token env var.
 4. Confirm `GOOGLE_CREDENTIALS_JSON` is set in your **local `.env`** (it must be the full client-secret JSON on a single line — minify if needed)
 
 ### Run the helper (once per account)
