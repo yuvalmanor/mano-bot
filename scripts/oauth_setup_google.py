@@ -80,6 +80,11 @@ def _run_loopback(client_config: dict, account_key: str) -> int:
 
 
 def _run_manual(client_config: dict, account_key: str) -> int:
+    # oauthlib refuses to parse a non-HTTPS authorization_response by default.
+    # For the manual flow we redirect to http://localhost:8765 (loopback only,
+    # never leaves the machine), so this is the documented workaround.
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
     flow = Flow.from_client_config(client_config, scopes=SCOPES)
     flow.redirect_uri = MANUAL_REDIRECT_URI
     auth_url, _state = flow.authorization_url(
