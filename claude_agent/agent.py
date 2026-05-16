@@ -16,6 +16,11 @@ MAX_HISTORY_TURNS = 5
 
 HEBREW_ERROR = "משהו השתבש, נסה שוב"
 
+PENDING_ACTIONS: dict[str, dict] = {}
+TTL_MINUTES = 5
+CONFIRM_WORDS = {"כן", "yes", "אשר", "ok", "confirm", "כן."}
+CANCEL_WORDS = {"לא", "no", "ביטול", "cancel", "בטל", "לא."}
+
 
 async def run(user_phone: str, message: str) -> str:
     """Run a Claude turn for a given user.

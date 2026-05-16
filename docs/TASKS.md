@@ -56,7 +56,7 @@ The goal is to work in the best way possible while managing the risk.
 | 2 | Echo bot | 🟨 Code done, live test deferred | 🔴 | Code + 22 mocked tests passing; live webhook test will run via Railway in Task 2b |
 | 2b | Live echo test via Railway | ⚠️ Blocked | 🟡 | Railway deployed ✓, webhook registered ✓, POST→200 via Test button ✓. Blocked: need dedicated SIM for bot's WhatsApp number (personal number can't be used — already a WA account). Resume when SIM available. |
 | 3 | Claude integration | ✅ Done | 🔴 | Code + 10 mocked tests passing; live verification deferred until Task 2b's SIM available |
-| 4 | Security layer | 🔲 Not started | 🟢 | code only, no network |
+| 4 | Security layer | ✅ Done | 🟢 | auth allowlist, rate limiter, audit log, dedup, kill switch, pending-action store; 15 new tests (47 total) passing |
 | 5 | Notion integration | 🔲 Not started | 🔴 | outbound API calls |
 | 6 | Gmail integration | 🔲 Not started | 🔴 | outbound API calls + OAuth |
 | 7 | Google Calendar integration | 🔲 Not started | 🔴 | outbound API calls |

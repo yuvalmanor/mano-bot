@@ -78,6 +78,17 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - conftest.py at repo root populates dummy env vars before config import (only fills empty/unset vars)
 - **Deferred:** live uvicorn+ngrok end-to-end test against Meta — will run via Railway deploy in Task 11 instead of local ngrok
 
+## [2026-05-16] — Task 4: Security Layer
+- `security/auth.py` `authorize_sender`: allowlist check via users.is_authorized; unauthorized attempts logged to audit (phone masked, no message content)
+- `security/rate_limiter.py`: sliding-window per-phone limiter, 20 msg / 10 min, in-memory deque; Hebrew warning message; `_reset_for_tests` helper
+- `security/audit.py` `log_action`: appends `[iso ts] | phone=****1234 | action=X | details=X | status=X` to `audit.log`; swallows OSError so audit never breaks the request path; AUDIT_LOG_PATH overridable via env
+- `claude_agent/agent.py`: PENDING_ACTIONS store + TTL_MINUTES + CONFIRM_WORDS / CANCEL_WORDS constants (consumed by Task 5 onward)
+- `main.py`: SEEN_MESSAGE_IDS set + FIFO queue (cap 1000) with `is_duplicate()` helper; POST /webhook pipeline rewritten to: signature → BOT_ENABLED kill switch → parse → dedup → authorize → rate-limit (warning sent via background) → enqueue handler
+- `tests/conftest.py`: autouse fixture resets dedup + rate-limit state between tests
+- `tests/test_security.py` (15 tests): authorize_sender allow/deny, rate-limit under/over/per-phone/window-expiry, audit masking + OSError-swallow, dedup new/duplicate/FIFO-eviction, POST pipeline for unknown sender / dedup / rate-limited / BOT_ENABLED=false
+- Reinstalled `anthropic` (was missing from .venv post sandbox recovery) so router import chain resolves under pytest
+- All 47 tests passing (5 agent + 5 router + 22 webhook + 15 security)
+
 ## [2026-05-16] — Task 3: Claude Integration
 - Installed anthropic SDK
 - `claude_agent/agent.py`: `async def run(user_phone, message)` with CONVERSATION_HISTORY dict, MAX_HISTORY_TURNS=5, calls claude-sonnet-4-6 with ephemeral cache_control, 1024 max_tokens, empty tools list; on API error returns Hebrew fallback "משהו השתבש, נסה שוב"

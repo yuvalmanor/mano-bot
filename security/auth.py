@@ -1,8 +1,4 @@
-"""Webhook signature verification + sender allowlist.
-
-``verify_webhook_signature`` is implemented in Task 2 (needed by main.py).
-``authorize_sender`` is implemented in Task 4.
-"""
+"""Webhook signature verification + sender allowlist."""
 
 from __future__ import annotations
 
@@ -11,6 +7,8 @@ import hmac
 import logging
 
 import config
+from security.audit import log_action
+from users import is_authorized
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +34,12 @@ def verify_webhook_signature(payload_bytes: bytes, signature_header: str | None)
 
 
 def authorize_sender(phone: str) -> bool:
-    raise NotImplementedError(
-        "security.auth.authorize_sender is implemented in Task 4"
-    )
+    """Return True only if ``phone`` is in the user registry.
+
+    Logs unauthorized attempts to the audit trail with the phone (masked) and
+    timestamp only — never message content.
+    """
+    if is_authorized(phone):
+        return True
+    log_action(phone, "unauthorized_sender", "phone not in registry", "denied")
+    return False
