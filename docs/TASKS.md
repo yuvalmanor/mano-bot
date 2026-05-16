@@ -35,9 +35,9 @@ The goal is to work in the best way possible while managing the risk.
 **Full protocol for any 🔴 step:**
 1. Tell Yuval exactly what you're about to do
 2. Explain why it may trigger SentinelOne
-3. Say: "Please commit and push all current work before I proceed."
+3. **Claude commits and pushes all current work** (`git add` → `git commit` → `git push`) and reports the SHA. Do not ask Yuval to run git — Claude runs all git operations directly.
 4. Also offer: "This step can alternatively be run via Claude Code on claude.ai (web) to avoid local risk."
-5. Wait for Yuval's go-ahead before executing anything
+5. Wait for Yuval's go-ahead on the risky action itself before executing it
 
 **Bypass strategies (apply always, without compromising quality or security):**
 - Create files one at a time — not in rapid bulk

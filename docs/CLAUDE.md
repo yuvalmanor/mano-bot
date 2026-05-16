@@ -54,11 +54,13 @@ Before every step, determine its risk level:
 Before executing any 🔴 step:
 1. Tell Yuval exactly what you are about to do
 2. Explain why it may trigger SentinelOne
-3. Say: "Please commit and push all current work before I proceed."
-4. Wait for Yuval to confirm the push is done
+3. **Claude commits and pushes all current work** (`git add` → `git commit` → `git push`). Do not ask Yuval to do this — Claude runs all git operations directly. Report the resulting commit SHA.
+4. Wait for Yuval's explicit go-ahead on the risky action itself
 5. Only then execute the step
 
 This ensures that if SentinelOne quarantines files mid-task, all work is safe on GitHub and recovery is a single `git clone`.
+
+**General rule:** Claude owns all git operations in this repo (commits, pushes, branch work). Yuval is the decision-maker on *whether* to proceed; Claude is the operator.
 
 ### Rule 3 — Offer web as a fallback
 For any 🔴 step, also offer running it via **Claude Code on claude.ai (web)** as an alternative.
