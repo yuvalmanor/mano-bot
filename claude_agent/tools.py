@@ -114,6 +114,28 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "drive_search_files",
+        "description": (
+            "Search Google Drive by filename substring on one of Yuval's accounts. "
+            "Read-only — returns matching file names with their view links."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Substring to match in file names."},
+                "account_key": {
+                    "type": "string",
+                    "enum": ["personal", "cgm", "deals"],
+                    "description": (
+                        "personal=yuvalmanor@gmail.com, cgm=yuval.cgm@gmail.com, "
+                        "deals=deals@cgm-ventures.com"
+                    ),
+                },
+            },
+            "required": ["query", "account_key"],
+        },
+    },
+    {
         "name": "calendar_list_events",
         "description": "List upcoming events from Yuval's Google Calendar.",
         "input_schema": {

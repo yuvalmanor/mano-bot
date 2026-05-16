@@ -62,7 +62,8 @@ The goal is to work in the best way possible while managing the risk.
 | 6b | Gmail integration — live OAuth + verification | 🟨 Tokens live, end-to-end deferred | 🟡 | OAuth flow run 3× (personal/cgm/deals) via new `--manual` mode (port-binding-free); 3× `GOOGLE_TOKEN_*` set in Railway; Railway redeploy active. Fixed missing `NOTION_BUCKETS_DB_ID` along the way. Live WhatsApp→Gmail send test deferred — gated on Task 2b SIM, same as Tasks 3 and 5. |
 | 7a | Google Calendar — code + mocked tests | ✅ Done | 🟡 | `integrations/gcalendar.py` + 2 Claude tools + 17 tests (94 total) passing; OAuth helper already requests `calendar.events` scope, so existing `GOOGLE_TOKEN_PERSONAL` should work in 7b without re-OAuth |
 | 7b | Google Calendar — live verification | 🔲 Not started | 🔴 | gated on Task 2b SIM, same as Tasks 3/5/6b |
-| 8 | Google Drive integration | 🔲 Not started | 🔴 | outbound API calls |
+| 8a | Google Drive — code + mocked tests | ✅ Done | 🟡 | `integrations/drive.py` (read-only) + `drive_search_files` tool + 13 tests (107 total) passing; OAuth helper already includes `drive.readonly` scope, so existing GOOGLE_TOKEN_* should work in 8b without re-OAuth |
+| 8b | Google Drive — live verification | 🔲 Not started | 🔴 | gated on Task 2b SIM, same as Tasks 3/5/6b/7b |
 | 9 | Audit logging | 🔲 Not started | 🟢 | code only |
 | 10 | End-to-end testing | 🔲 Not started | 🔴 | full network activity |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |

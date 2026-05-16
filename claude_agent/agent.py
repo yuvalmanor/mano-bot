@@ -9,7 +9,7 @@ from anthropic import AsyncClient
 import config
 from claude_agent.system_prompt import SYSTEM_PROMPT
 from claude_agent.tools import TOOLS
-from integrations import gcalendar, gmail, notion
+from integrations import drive, gcalendar, gmail, notion
 from security.audit import log_action
 from users import has_permission
 
@@ -36,6 +36,7 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "gmail_send_email": "gmail",
     "calendar_create_event": "calendar",
     "calendar_list_events": "calendar",
+    "drive_search_files": "drive",
 }
 
 
@@ -75,6 +76,11 @@ async def _dispatch_tool(name: str, args: dict) -> str:
     if name == "calendar_list_events":
         text = await gcalendar.list_upcoming_events(days=int(args.get("days", 7)))
         return text or "(no events)"
+    if name == "drive_search_files":
+        text = await drive.search_files(
+            query=args["query"], account_key=args["account_key"]
+        )
+        return text or "(no files)"
     return f"unknown tool: {name}"
 
 

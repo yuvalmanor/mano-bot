@@ -6,6 +6,11 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-16] — Task 8a: Google Drive code + mocked tests
+- Implemented `integrations/drive.py` (`search_files`, read-only) using the same base64-env-var token pattern as gmail/gcalendar; query escaping handles apostrophes
+- Added `drive_search_files` Claude tool + agent dispatch + `drive` permission mapping
+- 13 new tests (107 total) passing; live verification deferred to Task 8b (gated on Task 2b SIM). OAuth helper already includes `drive.readonly` scope so no re-OAuth needed.
+
 ## [2026-05-16] — Task 7a: Google Calendar code + mocked tests
 - Implemented `integrations/gcalendar.py` (`create_event`, `list_upcoming_events`) following the gmail.py pattern (base64 env-var token, httpx, asyncio.to_thread refresh)
 - Added `calendar_create_event` and `calendar_list_events` Claude tools + agent dispatch + `calendar` permission mapping
