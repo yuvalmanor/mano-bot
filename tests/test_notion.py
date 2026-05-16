@@ -1,13 +1,21 @@
-"""Mocked unit tests for integrations.notion."""
+"""Mocked unit tests for integrations.notion (real-schema variant)."""
 
 from __future__ import annotations
 
+import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from integrations import notion
+
+
+@pytest.fixture(autouse=True)
+def _reset_bucket_cache() -> None:
+    notion._reset_bucket_cache()
+    yield
+    notion._reset_bucket_cache()
 
 
 def _resp(status_code: int, json_body: dict | None = None) -> MagicMock:
@@ -17,67 +25,149 @@ def _resp(status_code: int, json_body: dict | None = None) -> MagicMock:
     return r
 
 
-def _patch_async_client(post_resp):
-    """Patch httpx.AsyncClient so `.post(...)` returns ``post_resp``."""
-    mock_client = MagicMock()
-    mock_client.post = AsyncMock(return_value=post_resp)
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    return patch("integrations.notion.httpx.AsyncClient", return_value=mock_cm), mock_client
+BUCKETS_DB_RESPONSE = {
+    "results": [
+        {
+            "id": "bucket-personal-id",
+            "properties": {"Name": {"title": [{"plain_text": "Personal"}]}},
+        },
+        {
+            "id": "bucket-career-id",
+            "properties": {"Name": {"title": [{"plain_text": "Career"}]}},
+        },
+        {
+            "id": "bucket-business-id",
+            "properties": {"Name": {"title": [{"plain_text": "Business"}]}},
+        },
+    ]
+}
+
+
+def _scripted_post(script):
+    """Return an httpx.AsyncClient stand-in whose ``.post`` returns responses by call order.
+
+    ``script`` is a list of MagicMock responses or callables that take (url, **kwargs).
+    """
+    client = MagicMock()
+    state = {"i": 0}
+
+    def _post(url, **kwargs):
+        item = script[state["i"]]
+        state["i"] += 1
+        # Plain functions => call them (e.g. to raise); MagicMocks pass through.
+        if isinstance(item, types.FunctionType):
+            return item(url, **kwargs)
+        return item
+
+    client.post = AsyncMock(side_effect=_post)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return patch("integrations.notion.httpx.AsyncClient", return_value=cm), client
+
+
+# ---- add_task --------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_add_task_success() -> None:
-    cm, client = _patch_async_client(_resp(200, {"id": "abc"}))
+async def test_add_task_resolves_bucket_relation() -> None:
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),  # _load_buckets
+        _resp(200, {"id": "new-task"}),  # create page
+    ])
     with cm:
         ok = await notion.add_task("לקנות חלב", "Personal")
     assert ok is True
-    body = client.post.await_args.kwargs["json"]
+
+    # Second call is the page create — verify schema.
+    create_call = client.post.await_args_list[1]
+    body = create_call.kwargs["json"]
     assert body["parent"]["database_id"]
-    assert body["properties"]["Name"]["title"][0]["text"]["content"] == "לקנות חלב"
-    assert body["properties"]["Bucket"]["select"]["name"] == "Personal"
-    assert "Due" not in body["properties"]
+    assert body["properties"]["Task"]["title"][0]["text"]["content"] == "לקנות חלב"
+    assert body["properties"]["Bucket"]["relation"] == [{"id": "bucket-personal-id"}]
+    assert "Date" not in body["properties"]
 
 
 @pytest.mark.asyncio
 async def test_add_task_with_due_date() -> None:
-    cm, client = _patch_async_client(_resp(200, {"id": "abc"}))
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"id": "new-task"}),
+    ])
     with cm:
         ok = await notion.add_task("דוח", "Career", due_date="2026-06-01")
     assert ok is True
-    body = client.post.await_args.kwargs["json"]
-    assert body["properties"]["Due"]["date"]["start"] == "2026-06-01"
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert body["properties"]["Date"]["date"]["start"] == "2026-06-01"
+    assert body["properties"]["Bucket"]["relation"] == [{"id": "bucket-career-id"}]
+
+
+@pytest.mark.asyncio
+async def test_add_task_unknown_bucket_creates_without_relation() -> None:
+    """If bucket name doesn't exist in My Life Buckets, create without Bucket prop."""
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"id": "new-task"}),
+    ])
+    with cm:
+        ok = await notion.add_task("משימה", "DoesNotExist")
+    assert ok is True
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert "Bucket" not in body["properties"]
+    assert body["properties"]["Task"]["title"][0]["text"]["content"] == "משימה"
 
 
 @pytest.mark.asyncio
 async def test_add_task_http_error() -> None:
-    cm, _ = _patch_async_client(_resp(400, {"error": "bad request"}))
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(400, {"error": "bad"}),
+    ])
     with cm:
         ok = await notion.add_task("x", "Personal")
     assert ok is False
 
 
 @pytest.mark.asyncio
-async def test_add_task_timeout() -> None:
-    mock_client = MagicMock()
-    mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
-    mock_cm = MagicMock()
-    mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_cm.__aexit__ = AsyncMock(return_value=None)
-    with patch("integrations.notion.httpx.AsyncClient", return_value=mock_cm):
+async def test_add_task_timeout_on_create() -> None:
+    """Bucket load succeeds, page create times out."""
+    def create_timeout(url, **kwargs):
+        raise httpx.TimeoutException("timeout")
+
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        create_timeout,
+    ])
+    with cm:
         ok = await notion.add_task("x", "Personal")
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_add_task_when_bucket_load_fails() -> None:
+    """Bucket load HTTP error → cache empty → create succeeds without Bucket."""
+    cm, client = _scripted_post([
+        _resp(500),  # _load_buckets fails
+        _resp(200, {"id": "new"}),
+    ])
+    with cm:
+        ok = await notion.add_task("x", "Personal")
+    assert ok is True
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert "Bucket" not in body["properties"]
+
+
+# ---- add_idea --------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_add_idea_success() -> None:
-    cm, client = _patch_async_client(_resp(200, {"id": "abc"}))
+    cm, client = _scripted_post([_resp(200, {"id": "new-idea"})])
     with cm:
         ok = await notion.add_idea("רעיון חדש", description="פרטים")
     assert ok is True
     body = client.post.await_args.kwargs["json"]
-    assert body["properties"]["Name"]["title"][0]["text"]["content"] == "רעיון חדש"
+    assert body["properties"]["Idea"]["title"][0]["text"]["content"] == "רעיון חדש"
     assert (
         body["properties"]["Description"]["rich_text"][0]["text"]["content"]
         == "פרטים"
@@ -86,7 +176,7 @@ async def test_add_idea_success() -> None:
 
 @pytest.mark.asyncio
 async def test_add_idea_no_description() -> None:
-    cm, client = _patch_async_client(_resp(200, {"id": "abc"}))
+    cm, client = _scripted_post([_resp(200, {"id": "new-idea"})])
     with cm:
         ok = await notion.add_idea("רעיון")
     assert ok is True
@@ -94,9 +184,15 @@ async def test_add_idea_no_description() -> None:
     assert "Description" not in body["properties"]
 
 
+# ---- list_tasks ------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_list_tasks_empty() -> None:
-    cm, _ = _patch_async_client(_resp(200, {"results": []}))
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"results": []}),
+    ])
     with cm:
         out = await notion.list_tasks()
     assert out == ""
@@ -108,23 +204,26 @@ async def test_list_tasks_formats_by_bucket() -> None:
         "results": [
             {
                 "properties": {
-                    "Name": {"title": [{"plain_text": "משימה א"}]},
-                    "Bucket": {"select": {"name": "Personal"}},
-                    "Due": {"date": {"start": "2026-06-01"}},
-                    "Priority": {"select": {"name": "High"}},
+                    "Task": {"title": [{"plain_text": "משימה א"}]},
+                    "Bucket": {"relation": [{"id": "bucket-personal-id"}]},
+                    "Date": {"date": {"start": "2026-06-01"}},
+                    "Priority": {"select": {"name": "1"}},
                 }
             },
             {
                 "properties": {
-                    "Name": {"title": [{"plain_text": "משימה ב"}]},
-                    "Bucket": {"select": {"name": "Business"}},
-                    "Due": None,
+                    "Task": {"title": [{"plain_text": "משימה ב"}]},
+                    "Bucket": {"relation": [{"id": "bucket-business-id"}]},
+                    "Date": None,
                     "Priority": None,
                 }
             },
         ]
     }
-    cm, _ = _patch_async_client(_resp(200, pages))
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, pages),
+    ])
     with cm:
         out = await notion.list_tasks()
     assert "📂 Business" in out
@@ -132,22 +231,61 @@ async def test_list_tasks_formats_by_bucket() -> None:
     assert "משימה א" in out
     assert "משימה ב" in out
     assert "2026-06-01" in out
-    assert "High" in out
+    assert "P1" in out
 
 
 @pytest.mark.asyncio
 async def test_list_tasks_with_bucket_filter() -> None:
-    cm, client = _patch_async_client(_resp(200, {"results": []}))
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"results": []}),
+    ])
     with cm:
         await notion.list_tasks(filter_bucket="Personal")
-    body = client.post.await_args.kwargs["json"]
+    # Second call is the query — verify filter
+    query_call = client.post.await_args_list[1]
+    body = query_call.kwargs["json"]
     assert body["filter"]["property"] == "Bucket"
-    assert body["filter"]["select"]["equals"] == "Personal"
+    assert body["filter"]["relation"]["contains"] == "bucket-personal-id"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_unknown_filter_returns_empty() -> None:
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+    ])
+    with cm:
+        out = await notion.list_tasks(filter_bucket="NonexistentBucket")
+    assert out == ""
 
 
 @pytest.mark.asyncio
 async def test_list_tasks_http_error() -> None:
-    cm, _ = _patch_async_client(_resp(500))
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(500),
+    ])
     with cm:
         out = await notion.list_tasks()
     assert out == ""
+
+
+# ---- bucket cache ----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bucket_cache_loads_once() -> None:
+    """Two add_task calls in a row should only hit the buckets DB once."""
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"id": "t1"}),
+        _resp(200, {"id": "t2"}),
+    ])
+    with cm:
+        await notion.add_task("a", "Personal")
+        await notion.add_task("b", "Career")
+
+    # 3 total POSTs: 1 buckets load + 2 page creates.
+    assert client.post.await_count == 3
+    first_url = client.post.await_args_list[0].args[0]
+    assert "/databases/" in first_url  # the buckets query

@@ -89,6 +89,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - Reinstalled `anthropic` (was missing from .venv post sandbox recovery) so router import chain resolves under pytest
 - All 47 tests passing (5 agent + 5 router + 22 webhook + 15 security)
 
+## [2026-05-16] — Task 5: Notion schema alignment
+- Reviewed Yuval's actual Notion DBs via MCP — initial implementation assumed a wrong schema (`Name`/`Due` props + `Bucket` as select). Real schema has `Task`/`Idea` titles, `Date` for due dates, and `Bucket` as a *relation* to a separate "My Life Buckets" DB.
+- `integrations/notion.py` rewritten: lazy-cached bucket name↔page_id resolver (`_load_buckets`, single query against My Life Buckets), `add_task` sets `Bucket` as `{"relation": [{"id": ...}]}`, unknown bucket names create task without relation (audit `status=ok_no_bucket`).
+- `add_idea` uses `Idea` title prop; `list_tasks` extracts `Task` title and resolves `Bucket` relation back to a name via the reverse cache; filter-by-bucket uses `relation.contains` predicate.
+- Added `NOTION_BUCKETS_DB_ID` env var; conftest test default added.
+- Tests rewritten: 14 → 14 mocked-httpx tests (real-schema variants + bucket cache load-once test), all green; 65 total passing.
+- README "Notion setup" section rewritten with the actual DB IDs (Headquarters parent + Idea Lab parent), the easy "connect Mano Bot to parent pages" step, and a note that the 15 SYSTEM_PROMPT buckets must exist as pages in My Life Buckets.
+
 ## [2026-05-16] — Task 5: Notion Integration
 - `integrations/notion.py`: direct Notion REST API via httpx with 10s timeout, expects DB schema (Name/Bucket/Due/Priority for tasks, Name/Description for ideas). `add_task`, `add_idea` return bool; `list_tasks(filter_bucket)` returns Hebrew-friendly string grouped by bucket → due → priority. All errors logged to audit, never raise.
 - `claude_agent/tools.py`: 3 Anthropic tool definitions (`notion_add_task` with 15-bucket enum, `notion_list_tasks`, `notion_add_idea`).

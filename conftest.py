@@ -17,6 +17,7 @@ _TEST_ENV = {
     "NOTION_TOKEN": "test-notion",
     "NOTION_TASK_DB_ID": "test-task-db",
     "NOTION_IDEAS_DB_ID": "test-ideas-db",
+    "NOTION_BUCKETS_DB_ID": "test-buckets-db",
     "GOOGLE_CREDENTIALS_JSON": "{}",
     "GOOGLE_TOKEN_PERSONAL": "e30=",
     "GOOGLE_TOKEN_CGM": "e30=",

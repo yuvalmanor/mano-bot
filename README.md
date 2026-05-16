@@ -153,68 +153,81 @@ Back in Railway:
 
 ## Notion setup
 
-The Notion integration (Task 5) needs three env vars:
+The Notion integration (Task 5) talks to three databases that already exist in
+Yuval's workspace, under the **Headquarters** and **Idea Lab** parent pages.
+
+### Env vars
 
 ```
-NOTION_TOKEN           # internal integration token (secret_xxx)
-NOTION_TASK_DB_ID      # database ID of "My Task List"
-NOTION_IDEAS_DB_ID     # database ID of "Idea Lab"
+NOTION_TOKEN            # internal integration token (ntn_... or secret_...)
+NOTION_TASK_DB_ID       # 2dd484a7ece581eba273d55f54119119   (My Task List, under Headquarters)
+NOTION_IDEAS_DB_ID      # 110d878b5f3e4f828448aaaa6b19c05c   (My Ideas, under Idea Lab)
+NOTION_BUCKETS_DB_ID    # 2dd484a7ece581edadf5000b8ab9f6a4   (My Life Buckets, under Headquarters)
 ```
+
+These IDs are stable — they're already wired into Mano's adapter.
 
 ### 1. Create the internal integration
 
-1. Open **<https://www.notion.so/profile/integrations>** → click **"New integration"**
-2. Name: `Mano Bot` → Associated workspace: your personal workspace → **Save**
-3. On the integration page, copy the **Internal Integration Secret** (starts with `secret_` or `ntn_`). This is `NOTION_TOKEN`.
-4. Under **Capabilities** keep the defaults: Read content, Update content, Insert content. No user info needed.
+1. Open **<https://www.notion.so/profile/integrations>** → **"New integration"**
+2. Name: `Mano Bot` → Associated workspace: your personal workspace → **Create**
+3. Under **Capabilities** keep the defaults: Read content, Update content, Insert content. No user info.
+4. Copy the **Internal Integration Secret** (`ntn_...` or `secret_...`) — this is `NOTION_TOKEN`.
 
-### 2. Create the two databases
+### 2. Connect Mano Bot to your two parent pages
 
-Inside your Notion workspace:
+Mano reads/writes three child databases. Connecting at the parent-page level
+gives the integration access to all of them in one click.
 
-**My Task List** — full-page database with these properties (exact names):
+For each of these pages, do:
+
+- **Headquarters** — <https://www.notion.so/Headquarters-2dd484a7ece581dd9790c9df701202c9>
+- **Idea Lab** — <https://www.notion.so/Idea-Lab-35c484a7ece5815cad29c59497023df0>
+
+1. Open the page in Notion → click **`…`** top-right → **Connections** → **Connect to** → pick `Mano Bot`
+2. Confirm the access prompt
+
+Without this step, Notion returns 404 on every API call from the bot.
+
+### 3. Schema (already in place — do not change)
+
+This is what Mano expects. Your DBs already match. **Don't rename these props.**
+
+**My Task List** (database):
 
 | Property | Type | Notes |
 |---|---|---|
-| `Name` | Title | (default — already exists) |
-| `Bucket` | Select | Add the 15 options: Business, Career, Self Improvement, Personal, Productive Ideas, Job, Health, Fitness, Family & Friends, Journal, Relationship, Admin, Marketing, Economics, Study |
-| `Due` | Date | optional values |
-| `Priority` | Select | optional — used only for sort order in `list_tasks` |
+| `Task` | Title | task name |
+| `Bucket` | Relation → My Life Buckets | Mano resolves bucket name → page by querying My Life Buckets |
+| `Date` | Date | optional due date |
+| `Priority` | Select (`1` / `2` / `3`) | used only for list ordering |
 
-**Idea Lab** — full-page database:
+**My Ideas** (database, under Idea Lab):
 
 | Property | Type |
 |---|---|
-| `Name` | Title |
-| `Description` | Text |
+| `Idea` | Title |
+| `Description` | Text (rich_text) — optional |
 
-### 3. Connect each database to the integration
+(The richer fields you have on My Ideas — `Category`, `Status`, `Source`, `Tags`, `Effort`, `Potential`, `Activation Date`, `Date Captured` — aren't set by Mano yet. Will add as needed.)
 
-For each database page:
-
-1. Click **`…`** (top-right) → **Connections** → **Connect to** → pick `Mano Bot`
-2. Confirm the access prompt
-
-Without this step, the integration token cannot see the database — Notion returns 404.
-
-### 4. Get each database ID
-
-Open the database as a full page. The URL looks like:
+**My Life Buckets** (database) — title prop `Name`. One page per bucket. Make sure the 15 buckets from `SYSTEM_PROMPT` all exist as pages here:
 
 ```
-https://www.notion.so/yourworkspace/<DATABASE_ID>?v=<view_id>
+Business, Career, Self Improvement, Personal, Productive Ideas, Job, Health,
+Fitness, Family & Friends, Journal, Relationship, Admin, Marketing, Economics, Study
 ```
 
-`<DATABASE_ID>` is a 32-character hex string (with or without dashes). That value is `NOTION_TASK_DB_ID` (for My Task List) or `NOTION_IDEAS_DB_ID` (for Idea Lab).
+If you request a bucket name that isn't in My Life Buckets, Mano creates the task without a bucket relation (audit log `status=ok_no_bucket`) and you can re-bucket manually.
 
-### 5. Set the env vars
+### 4. Set the env vars
 
-- Locally: add to `.env`
-- Railway: **Variables tab** → add the three keys
+- Locally: add the four `NOTION_*` keys to `.env` (DB IDs are listed at the top of this section).
+- Railway: **Variables tab** → add the four keys.
 
-### 6. Verify
+### 5. Verify
 
-Send WhatsApp message: `תוסיף משימה לקנות חלב תחת Personal` → Mano should confirm (`לאשר?`) → reply `כן` → task appears in My Task List.
+Send WhatsApp message: `תוסיף משימה לקנות חלב תחת Personal` → Mano confirms (`לאשר?`) → reply `כן` → task appears in My Task List with Bucket relation set to the Personal page.
 
 ## Google Auth Setup
 
