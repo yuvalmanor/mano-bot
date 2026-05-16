@@ -250,20 +250,26 @@ filesystem is ephemeral (see D-015).
 
 ### Run the helper (once per account)
 
-🔴 SentinelOne risk: opens a browser window and listens on a local loopback port for the OAuth redirect. Strongly recommended to run this from Claude Code on claude.ai (web) instead — or commit and push all work first.
+The helper has two modes:
 
-For each account:
+* **default (loopback)** — `python scripts/oauth_setup_google.py <account>`. Opens a browser AND binds a temporary localhost port for the OAuth redirect. 🔴 SentinelOne risk: port binding + outbound HTTPS together. Use only if you're certain SentinelOne is calm.
+
+* **`--manual`** — `python scripts/oauth_setup_google.py <account> --manual`. Prints the Google auth URL, you sign in in your browser, copy the (failed-redirect) URL from the address bar, paste it back. No port binding. 🟡 risk only (outbound HTTPS POST). **This is the recommended mode on the corporate machine.**
+
+For each account, in manual mode:
 ```
-python scripts/oauth_setup_google.py personal
-python scripts/oauth_setup_google.py cgm
-python scripts/oauth_setup_google.py deals
+python scripts/oauth_setup_google.py personal --manual
+python scripts/oauth_setup_google.py cgm --manual
+python scripts/oauth_setup_google.py deals --manual
 ```
 
-What happens:
-1. Browser opens to a Google sign-in page → sign in with the EXACT account name printed by the script
-2. Approve the requested scopes (gmail.send, calendar.events, drive.readonly)
-3. Browser shows "The authentication flow has completed."
-4. The script prints a single long base64 line to stdout — that's your token
+Manual flow walkthrough:
+1. Script prints "STEP 1 — Open this URL in your browser" followed by a long `https://accounts.google.com/o/oauth2/auth?...` URL — copy that whole URL
+2. Open it in any browser → sign in with the **exact** account name the script printed (Google will reject any other account, since only the four test users are enrolled)
+3. Approve the requested scopes (gmail.send, calendar.events, drive.readonly)
+4. Google redirects to `http://localhost:8765/?code=...` — the browser shows **"This site can't be reached" / `ERR_CONNECTION_REFUSED`**. THAT IS EXPECTED. Nothing is listening on port 8765. The piece you need is in the URL bar.
+5. Copy the **entire URL** from the browser address bar (it starts with `http://localhost:8765/?state=...&code=...&scope=...`) and paste it into the script at the `>` prompt → Enter
+6. Script does one outbound HTTPS POST to `oauth2.googleapis.com/token`, exchanges the code for a token, and prints a single long base64 line — that's your token
 
 ### Paste the token into Railway
 
