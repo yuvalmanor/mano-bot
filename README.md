@@ -113,6 +113,8 @@ Back in Railway:
 3. After adding all variables, Railway will automatically redeploy
 4. Wait for the deploy to show **"Success"** (green) in the **"Deployments"** tab before continuing
 
+**Railway gotcha:** edits to existing variables sometimes land in a "staged changes" state with a yellow **"Apply Changes"** banner at the top of the Variables tab. Until you click that, redeploys silently use the previous values — which presents as a deploy that briefly goes Active then crash-loops on the old config. If you see this, click **Apply Changes** (or **Save**) and Railway will redeploy with the real values.
+
 ---
 
 ### Part B — Meta webhook registration
