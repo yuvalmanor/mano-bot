@@ -57,7 +57,7 @@ The goal is to work in the best way possible while managing the risk.
 | 2b | Live echo test via Railway | ⚠️ Blocked | 🟡 | Railway deployed ✓, webhook registered ✓, POST→200 via Test button ✓. Blocked: need dedicated SIM for bot's WhatsApp number (personal number can't be used — already a WA account). Resume when SIM available. |
 | 3 | Claude integration | ✅ Done | 🔴 | Code + 10 mocked tests passing; live verification deferred until Task 2b's SIM available |
 | 4 | Security layer | ✅ Done | 🟢 | auth allowlist, rate limiter, audit log, dedup, kill switch, pending-action store; 15 new tests (47 total) passing |
-| 5 | Notion integration | ✅ Done | 🔴 | Code + tool-use loop + 14 new tests (61 total) passing; live verification deferred until Notion creds set up (see README "Notion setup") |
+| 5 | Notion integration | ✅ Done | 🔴 | Adapter aligned with real schema (Task/Idea titles + Bucket relation to My Life Buckets); 18 Notion tests (65 total) passing; Mano Bot connected to Headquarters + Idea Lab parent pages; 4 NOTION_* env vars set in Railway; live WhatsApp verification deferred until Task 2b SIM available |
 | 6 | Gmail integration | 🔲 Not started | 🔴 | outbound API calls + OAuth |
 | 7 | Google Calendar integration | 🔲 Not started | 🔴 | outbound API calls |
 | 8 | Google Drive integration | 🔲 Not started | 🔴 | outbound API calls |

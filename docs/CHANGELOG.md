@@ -89,6 +89,12 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 - Reinstalled `anthropic` (was missing from .venv post sandbox recovery) so router import chain resolves under pytest
 - All 47 tests passing (5 agent + 5 router + 22 webhook + 15 security)
 
+## [2026-05-16] — Task 5: live setup complete
+- Yuval connected the Mano Bot internal integration to both parent pages: Headquarters (contains My Task List + My Life Buckets) and Idea Lab (contains My Ideas).
+- 4 NOTION_* env vars set in Railway (NOTION_TOKEN, NOTION_TASK_DB_ID, NOTION_IDEAS_DB_ID, NOTION_BUCKETS_DB_ID); auto-redeployed.
+- Added `scripts/smoke_test_notion.py` — runs `_load_buckets` + `add_task` + `add_idea` against the real API. Useful for re-verifying Notion plumbing when credentials change. Not run yet (deferred with Task 2b live verification).
+- Task 5 status: ✅ done. Live WhatsApp→Notion verification will run once the dedicated SIM unblocks Task 2b.
+
 ## [2026-05-16] — Task 5: Notion schema alignment
 - Reviewed Yuval's actual Notion DBs via MCP — initial implementation assumed a wrong schema (`Name`/`Due` props + `Bucket` as select). Real schema has `Task`/`Idea` titles, `Date` for due dates, and `Bucket` as a *relation* to a separate "My Life Buckets" DB.
 - `integrations/notion.py` rewritten: lazy-cached bucket name↔page_id resolver (`_load_buckets`, single query against My Life Buckets), `add_task` sets `Bucket` as `{"relation": [{"id": ...}]}`, unknown bucket names create task without relation (audit `status=ok_no_bucket`).
