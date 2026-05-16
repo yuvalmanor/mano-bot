@@ -1,9 +1,71 @@
-"""Google Calendar integration. Implemented in Task 7.
+"""Google Calendar integration.
 
-Named gcalendar to avoid shadowing the stdlib calendar module.
+Uses the personal account token (``GOOGLE_TOKEN_PERSONAL``) — Yuval's single
+calendar lives at ``yuvalmanor@gmail.com``. Tokens are base64-encoded JSON in
+env vars, same pattern as ``integrations.gmail`` (see D-015).
+
+Named ``gcalendar`` to avoid shadowing the stdlib ``calendar`` module.
+
+Permission checks (``has_permission(phone, "calendar")``) happen at the
+``claude_agent`` dispatch layer, not here.
 """
 
 from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+
+import httpx
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+
+import config
+from security.audit import log_action
+
+logger = logging.getLogger(__name__)
+
+CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+TIMEOUT_SECONDS = 10.0
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+
+
+def _load_credentials() -> Credentials | None:
+    """Decode the personal-account base64 token JSON. None on failure."""
+    raw = config.GOOGLE_TOKEN_PERSONAL
+    if not raw:
+        return None
+    try:
+        decoded = base64.b64decode(raw)
+        info = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError) as exc:
+        logger.error("gcalendar _load_credentials decode error: %s", exc.__class__.__name__)
+        return None
+    try:
+        return Credentials.from_authorized_user_info(info, scopes=[CALENDAR_SCOPE])
+    except Exception as exc:
+        logger.error("gcalendar Credentials.from_authorized_user_info failed: %s", exc.__class__.__name__)
+        return None
+
+
+async def _ensure_access_token(creds: Credentials) -> str | None:
+    """Return a valid access token, refreshing in a worker thread if needed."""
+    if creds.valid and creds.token:
+        return creds.token
+    if not creds.refresh_token:
+        return creds.token
+
+    def _refresh() -> None:
+        creds.refresh(Request())
+
+    try:
+        await asyncio.to_thread(_refresh)
+    except Exception as exc:
+        logger.error("gcalendar token refresh failed: %s", exc.__class__.__name__)
+        return None
+    return creds.token
 
 
 async def create_event(
@@ -12,12 +74,103 @@ async def create_event(
     end_datetime: str,
     description: str | None = None,
 ) -> bool:
-    raise NotImplementedError(
-        "integrations.gcalendar.create_event is implemented in Task 7"
-    )
+    """Create an event on the primary calendar.
+
+    ``start_datetime`` / ``end_datetime`` must be RFC3339 strings (e.g.
+    ``2026-05-20T14:00:00+03:00``). Returns True on success, False on any
+    failure (missing/unreadable token, refresh failure, HTTP error, timeout).
+    Never raises.
+    """
+    creds = _load_credentials()
+    if creds is None:
+        log_action("", "calendar_create_event", "", "no_token")
+        return False
+
+    token = await _ensure_access_token(creds)
+    if not token:
+        log_action("", "calendar_create_event", "", "refresh_failed")
+        return False
+
+    body: dict = {
+        "summary": title,
+        "start": {"dateTime": start_datetime},
+        "end": {"dateTime": end_datetime},
+    }
+    if description:
+        body["description"] = description
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(CALENDAR_API_BASE, headers=headers, json=body)
+        if resp.status_code >= 400:
+            logger.error("Calendar create HTTP %s", resp.status_code)
+            log_action("", "calendar_create_event", "", f"http_{resp.status_code}")
+            return False
+        log_action("", "calendar_create_event", "", "ok")
+        return True
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Calendar create error: %s", exc.__class__.__name__)
+        log_action("", "calendar_create_event", "", "error")
+        return False
+
+
+def _format_events(items: list[dict]) -> str:
+    """Render a list of Calendar API event resources as a Hebrew-friendly string."""
+    if not items:
+        return ""
+    lines: list[str] = []
+    for ev in items:
+        title = ev.get("summary", "(ללא כותרת)")
+        start = ev.get("start", {})
+        when = start.get("dateTime") or start.get("date") or ""
+        lines.append(f"• {when} — {title}")
+    return "\n".join(lines)
 
 
 async def list_upcoming_events(days: int = 7) -> str:
-    raise NotImplementedError(
-        "integrations.gcalendar.list_upcoming_events is implemented in Task 7"
-    )
+    """Return upcoming events for the next ``days`` days as a formatted string.
+
+    Empty string on any failure or if no events are found.
+    """
+    creds = _load_credentials()
+    if creds is None:
+        log_action("", "calendar_list_events", "", "no_token")
+        return ""
+
+    token = await _ensure_access_token(creds)
+    if not token:
+        log_action("", "calendar_list_events", "", "refresh_failed")
+        return ""
+
+    now = datetime.now(timezone.utc)
+    time_min = now.isoformat().replace("+00:00", "Z")
+    time_max = (now + timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+    params = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": "50",
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.get(CALENDAR_API_BASE, headers=headers, params=params)
+        if resp.status_code >= 400:
+            logger.error("Calendar list HTTP %s", resp.status_code)
+            log_action("", "calendar_list_events", "", f"http_{resp.status_code}")
+            return ""
+        data = resp.json()
+        log_action("", "calendar_list_events", f"days={days}", "ok")
+        return _format_events(data.get("items", []))
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Calendar list error: %s", exc.__class__.__name__)
+        log_action("", "calendar_list_events", "", "error")
+        return ""

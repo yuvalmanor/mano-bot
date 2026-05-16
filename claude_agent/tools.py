@@ -89,4 +89,41 @@ TOOLS: list[dict] = [
             "required": ["to", "subject", "body", "account_key"],
         },
     },
+    {
+        "name": "calendar_create_event",
+        "description": (
+            "Create an event on Yuval's Google Calendar. Always confirm title, "
+            "start, end, and description with the user before calling. Times "
+            "must be RFC3339 strings (e.g. 2026-05-20T14:00:00+03:00)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "start_datetime": {
+                    "type": "string",
+                    "description": "RFC3339 start, e.g. 2026-05-20T14:00:00+03:00",
+                },
+                "end_datetime": {
+                    "type": "string",
+                    "description": "RFC3339 end, e.g. 2026-05-20T15:00:00+03:00",
+                },
+                "description": {"type": "string"},
+            },
+            "required": ["title", "start_datetime", "end_datetime"],
+        },
+    },
+    {
+        "name": "calendar_list_events",
+        "description": "List upcoming events from Yuval's Google Calendar.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Look-ahead window in days (default 7).",
+                },
+            },
+        },
+    },
 ]

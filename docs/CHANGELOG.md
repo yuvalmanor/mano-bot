@@ -6,6 +6,11 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-16] — Task 7a: Google Calendar code + mocked tests
+- Implemented `integrations/gcalendar.py` (`create_event`, `list_upcoming_events`) following the gmail.py pattern (base64 env-var token, httpx, asyncio.to_thread refresh)
+- Added `calendar_create_event` and `calendar_list_events` Claude tools + agent dispatch + `calendar` permission mapping
+- 17 new tests (94 total) passing; live verification deferred to Task 7b (gated on Task 2b SIM). OAuth helper already includes `calendar.events` scope so no re-OAuth needed.
+
 ## [2026-05-09] — Project Definition
 - Defined project scope, users, integrations, behavior rules
 - Established two-user model (Yuval + Eden) with phone-based identification
