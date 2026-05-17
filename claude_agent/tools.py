@@ -164,6 +164,61 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "gmail_search_inbox",
+        "description": (
+            "Search a Gmail inbox and return matching messages (sender, "
+            "subject, date, snippet). Use Gmail query syntax: 'from:alice@x.com', "
+            "'subject:invoice', 'newer_than:7d', or plain keywords. Currently "
+            "only the 'cgm' account (yuval.cgm@gmail.com) is readable; do NOT "
+            "attempt this on personal/deals."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query. Empty string returns the most recent messages.",
+                },
+                "account_key": {
+                    "type": "string",
+                    "enum": ["cgm"],
+                    "description": "cgm=yuval.cgm@gmail.com (only readable account).",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max messages to return (default 10, capped at 25).",
+                },
+            },
+            "required": ["query", "account_key"],
+        },
+    },
+    {
+        "name": "contacts_lookup",
+        "description": (
+            "Look up a person in the account's Google contacts (saved contacts + "
+            "people the account has emailed in the past). Returns name/email "
+            "matches. Use BEFORE asking the user for an email address when they "
+            "name a recipient (e.g. 'send from cgm to Alice'). Currently only "
+            "the 'cgm' account is searchable. If results are empty, ask the user "
+            "for the address. If multiple, present them and ask which."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Name or email substring to search for.",
+                },
+                "account_key": {
+                    "type": "string",
+                    "enum": ["cgm"],
+                    "description": "cgm=yuval.cgm@gmail.com contacts.",
+                },
+            },
+            "required": ["query", "account_key"],
+        },
+    },
+    {
         "name": "calendar_create_event",
         "description": (
             "Create an event on Yuval's Google Calendar. Always confirm title, "

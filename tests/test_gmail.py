@@ -225,6 +225,140 @@ async def test_send_email_never_logs_token_value(caplog) -> None:
     assert "super-secret-token-DO-NOT-LEAK" not in full_log
 
 
+# ---- search_inbox ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_bad_account() -> None:
+    out = await gmail.search_inbox("anything", account_key="bogus")
+    assert out == ""
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_happy_path_formats_summary() -> None:
+    creds = _make_creds(valid=True)
+
+    list_body = {"messages": [{"id": "m1"}, {"id": "m2"}]}
+    msg1 = {
+        "snippet": "first snippet",
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "alice@x.com"},
+                {"name": "Subject", "value": "Hello"},
+                {"name": "Date", "value": "Mon, 1 Jan 2026"},
+            ]
+        },
+    }
+    msg2 = {
+        "snippet": "second snippet",
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "bob@y.com"},
+                {"name": "Subject", "value": "Invoice"},
+                {"name": "Date", "value": "Tue, 2 Jan 2026"},
+            ]
+        },
+    }
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            resp.json.return_value = list_body
+        elif url.endswith("/m1"):
+            resp.json.return_value = msg1
+        elif url.endswith("/m2"):
+            resp.json.return_value = msg2
+        else:
+            resp.json.return_value = {}
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        out = await gmail.search_inbox("from:alice", account_key="cgm")
+
+    assert "Hello" in out
+    assert "alice@x.com" in out
+    assert "first snippet" in out
+    assert "Invoice" in out
+    assert "bob@y.com" in out
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_empty_list_returns_empty_string() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {}  # no "messages" key
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        out = await gmail.search_inbox("nothing-matches", account_key="cgm")
+
+    assert out == ""
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_list_http_error_returns_empty() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 403
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        out = await gmail.search_inbox("x", account_key="cgm")
+
+    assert out == ""
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_timeout_returns_empty() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        raise httpx.TimeoutException("slow")
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        out = await gmail.search_inbox("x", account_key="cgm")
+
+    assert out == ""
+
+
 # ---- Agent dispatch integration -------------------------------------------
 
 

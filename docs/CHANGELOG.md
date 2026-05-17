@@ -6,6 +6,18 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-17] — Task 6c: Gmail read + contacts lookup + default-personal routing (code done)
+- `integrations/contacts.py` (new): People API lookup against both `searchContacts` (saved) and `otherContacts:search` (anyone you've emailed). Returns deduped `{name, email}` list. 10s timeout, never raises.
+- `integrations/gmail.py`: new `search_inbox(query, account_key, max_results)` using Gmail `messages.list` + `messages.get` (format=metadata). Expanded `ALL_SCOPES` constant — credentials now load with gmail.send + gmail.readonly + contacts.readonly + contacts.other.readonly + calendar.events + drive.readonly.
+- `claude_agent/tools.py`: new tools `gmail_search_inbox` (cgm-only) and `contacts_lookup` (cgm-only).
+- `claude_agent/agent.py`: dispatch + permission entries (`gmail`) for the two new tools; contacts result formatted as "matches:\n…" string for Claude.
+- `claude_agent/system_prompt.py`: default account = personal when `#cgm`/`#deals` not stated; multi-turn "send from cgm to <name>" flow (contacts_lookup → ask-if-missing → ask-for-content → draft casual → confirm); cgm-only read rule.
+- `scripts/oauth_setup_google.py`: SCOPES expanded — existing tokens (send-only) will need re-OAuth before read + contacts work.
+- README: People API added to Cloud Console enable list; OAuth scope list updated; re-OAuth note.
+- TASKS.md: 6b folded into new 6c; 6d added (Eden wiring).
+- TESTING.md: new Task 6c subsection (6 rows).
+- 146 tests pass (was 136). New: 5 in `tests/test_contacts.py` (no-token, merge+dedupe, timeout, 4xx-on-one-endpoint, ignore-no-email-rows); 5 in `tests/test_gmail.py` (bad account, happy path summary format, empty list, list HTTP error, timeout).
+
 ## [2026-05-17] — Idea Lab hardening + language-leak code fix + KNOWN_ISSUES.md
 - `claude_agent/agent.py`: per-message language detection (Hebrew chars → he, else en) injects a per-turn directive into the user message. Prompt-only language mirroring kept leaking Hebrew on tool flows after three prompt rewrites; this is the code-level backstop.
 - `claude_agent/agent.py`: per-turn single-call guard for write/mutate tools (`notion_add_idea/task`, `notion_archive_*`, `calendar_create_event`, `gmail_send_email`). Second invocation on the same primary key in one `run()` is short-circuited with a BLOCKED tool_result.

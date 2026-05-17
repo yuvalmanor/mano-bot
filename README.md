@@ -242,7 +242,7 @@ filesystem is ephemeral (see D-015).
 ### Prereqs (one-time, in Google Cloud Console)
 
 1. Open the [Google Cloud Console — APIs & Services](https://console.cloud.google.com/apis/dashboard) and select the project that owns the OAuth client (the same one that produced `GOOGLE_CREDENTIALS_JSON`)
-2. Go to **APIs & Services → Library** and enable: **Gmail API**, **Google Calendar API**, **Google Drive API**
+2. Go to **APIs & Services → Library** and enable: **Gmail API**, **Google Calendar API**, **Google Drive API**, **People API**
 3. Go to **APIs & Services → OAuth consent screen → Audience**:
    - User type: **External**
    - Publishing status: **Testing**
@@ -268,7 +268,7 @@ python scripts/oauth_setup_google.py deals --manual
 Manual flow walkthrough:
 1. Script prints "STEP 1 — Open this URL in your browser" followed by a long `https://accounts.google.com/o/oauth2/auth?...` URL — copy that whole URL
 2. Open it in any browser → sign in with the **exact** account name the script printed (Google will reject any other account, since only the four test users are enrolled)
-3. Approve the requested scopes (gmail.send, calendar.events, drive.readonly)
+3. Approve the requested scopes (gmail.send, gmail.readonly, contacts.readonly, contacts.other.readonly, calendar.events, drive.readonly). **Task 6c expanded this set — re-run OAuth for all three accounts so existing tokens get the new scopes.**
 4. Google redirects to `http://localhost:8765/?code=...` — the browser shows **"This site can't be reached" / `ERR_CONNECTION_REFUSED`**. THAT IS EXPECTED. Nothing is listening on port 8765. The piece you need is in the URL bar.
 5. Copy the **entire URL** from the browser address bar (it starts with `http://localhost:8765/?state=...&code=...&scope=...`) and paste it into the script at the `>` prompt → Enter
 6. Script does one outbound HTTPS POST to `oauth2.googleapis.com/token`, exchanges the code for a token, and prints a single long base64 line — that's your token

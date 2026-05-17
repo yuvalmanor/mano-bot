@@ -10,7 +10,7 @@ from anthropic import AsyncClient
 import config
 from claude_agent.system_prompt import SYSTEM_PROMPT
 from claude_agent.tools import TOOLS
-from integrations import drive, gcalendar, gmail, notion
+from integrations import contacts, drive, gcalendar, gmail, notion
 from security.audit import log_action
 from users import has_permission
 
@@ -39,6 +39,8 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_archive_idea": "idea_lab",
     "notion_comment_idea": "idea_lab",
     "gmail_send_email": "gmail",
+    "gmail_search_inbox": "gmail",
+    "contacts_lookup": "gmail",
     "calendar_create_event": "calendar",
     "calendar_list_events": "calendar",
     "drive_search_files": "drive",
@@ -127,6 +129,21 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             account_key=args["account_key"],
         )
         return "ok" if ok else "error"
+    if name == "gmail_search_inbox":
+        text = await gmail.search_inbox(
+            query=args.get("query", ""),
+            account_key=args["account_key"],
+            max_results=int(args.get("max_results", 10)),
+        )
+        return text or "(no messages)"
+    if name == "contacts_lookup":
+        results = await contacts.lookup_contact(
+            query=args["query"], account_key=args["account_key"]
+        )
+        if not results:
+            return "no_match"
+        lines = [f"{r['name'] or '(no name)'} <{r['email']}>" for r in results[:10]]
+        return "matches:\n" + "\n".join(lines)
     if name == "calendar_create_event":
         ok = await gcalendar.create_event(
             title=args["title"],

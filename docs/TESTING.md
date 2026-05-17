@@ -93,6 +93,17 @@ git add . && git commit -m "your message" && git push
 | Email tone is casual, no "—" punctuation | 🔲 | |
 | Reply "לא" → email not sent, bot confirms cancellation | 🔲 | |
 
+### Task 6c — Read + Contacts + Default routing
+
+| Test | Status | Notes |
+|---|---|---|
+| "שלח מייל לאליס" (no `#cgm`) → drafts from **personal** account by default | 🔲 | |
+| "שלח מייל from cgm to Alice" → bot calls `contacts_lookup`, finds Alice, asks for content, drafts, confirms, sends | 🔲 | |
+| "send from cgm to <name not in contacts>" → bot reports no match, asks for email address | 🔲 | |
+| Multiple matches → bot lists them and asks which one | 🔲 | |
+| "תקרא מיילים from:alice@x.com from cgm" → returns subject/from/snippet for recent matches | 🔲 | |
+| "read my personal inbox" → bot says read access is cgm-only | 🔲 | |
+
 ---
 
 ## Task 7 — Google Calendar Integration

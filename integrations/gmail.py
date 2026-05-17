@@ -30,8 +30,27 @@ from security.audit import log_action
 logger = logging.getLogger(__name__)
 
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+GMAIL_LIST_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+GMAIL_GET_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}"
 TIMEOUT_SECONDS = 10.0
+
+# Full scope set granted to the OAuth tokens after the Task 6c re-OAuth.
+# Older tokens (send-only) still work for send but will fail for read/contacts.
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
+OTHER_CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.other.readonly"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+
+ALL_SCOPES = [
+    GMAIL_SEND_SCOPE,
+    GMAIL_READ_SCOPE,
+    CONTACTS_SCOPE,
+    OTHER_CONTACTS_SCOPE,
+    CALENDAR_SCOPE,
+    DRIVE_SCOPE,
+]
 
 ACCOUNT_KEYS = ("personal", "cgm", "deals")
 
@@ -58,7 +77,7 @@ def _load_credentials(account_key: str) -> Credentials | None:
         logger.error("gmail _load_credentials decode error: %s", exc.__class__.__name__)
         return None
     try:
-        return Credentials.from_authorized_user_info(info, scopes=[GMAIL_SEND_SCOPE])
+        return Credentials.from_authorized_user_info(info, scopes=ALL_SCOPES)
     except Exception as exc:  # google-auth raises ValueError on bad shape
         logger.error("gmail Credentials.from_authorized_user_info failed: %s", exc.__class__.__name__)
         return None
@@ -133,3 +152,95 @@ async def send_email(to: str, subject: str, body: str, account_key: str) -> bool
         logger.error("Gmail send error: %s", exc.__class__.__name__)
         log_action("", "gmail_send_email", f"account={account_key}", "error")
         return False
+
+
+def _header(headers: list[dict], name: str) -> str:
+    target = name.lower()
+    for entry in headers or []:
+        if (entry.get("name") or "").lower() == target:
+            return entry.get("value") or ""
+    return ""
+
+
+def _format_summary(messages: list[dict]) -> str:
+    if not messages:
+        return ""
+    lines: list[str] = []
+    for msg in messages:
+        payload = msg.get("payload") or {}
+        headers = payload.get("headers") or []
+        sender = _header(headers, "From")
+        subject = _header(headers, "Subject") or "(no subject)"
+        date = _header(headers, "Date")
+        snippet = (msg.get("snippet") or "").strip()
+        lines.append(f"• {subject}\n  {sender} — {date}\n  {snippet}")
+    return "\n\n".join(lines)
+
+
+async def search_inbox(
+    query: str, account_key: str, max_results: int = 10
+) -> str:
+    """Search the account's Gmail inbox and return a human-readable summary.
+
+    ``query`` follows the Gmail search syntax (``from:``, ``subject:``,
+    plain keywords, etc.). Empty string returns the most recent messages.
+    Returns an empty string on any failure or zero hits.
+    """
+    if account_key not in ACCOUNT_KEYS:
+        log_action("", "gmail_search_inbox", f"account={account_key}", "bad_account")
+        return ""
+
+    creds = _load_credentials(account_key)
+    if creds is None:
+        log_action("", "gmail_search_inbox", f"account={account_key}", "no_token")
+        return ""
+
+    token = await _ensure_access_token(creds)
+    if not token:
+        log_action("", "gmail_search_inbox", f"account={account_key}", "refresh_failed")
+        return ""
+
+    headers = {"Authorization": f"Bearer {token}"}
+    max_results = max(1, min(int(max_results or 10), 25))
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            list_resp = await client.get(
+                GMAIL_LIST_URL,
+                headers=headers,
+                params={"q": query or "", "maxResults": max_results},
+            )
+            if list_resp.status_code >= 400:
+                logger.error("Gmail list HTTP %s", list_resp.status_code)
+                log_action(
+                    "", "gmail_search_inbox", f"account={account_key}", f"http_{list_resp.status_code}"
+                )
+                return ""
+            ids = [m["id"] for m in (list_resp.json().get("messages") or []) if "id" in m]
+            messages: list[dict] = []
+            for mid in ids:
+                get_resp = await client.get(
+                    GMAIL_GET_URL.format(id=mid),
+                    headers=headers,
+                    params={
+                        "format": "metadata",
+                        "metadataHeaders": ["From", "Subject", "Date"],
+                    },
+                )
+                if get_resp.status_code >= 400:
+                    logger.error("Gmail get HTTP %s for msg", get_resp.status_code)
+                    continue
+                messages.append(get_resp.json())
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Gmail search error: %s", exc.__class__.__name__)
+        log_action("", "gmail_search_inbox", f"account={account_key}", "error")
+        return ""
+
+    summary = _format_summary(messages)
+    log_action(
+        "",
+        "gmail_search_inbox",
+        f"account={account_key} hits={len(messages)}",
+        "ok",
+    )
+    return summary
