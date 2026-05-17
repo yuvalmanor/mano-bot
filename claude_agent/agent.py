@@ -31,6 +31,7 @@ MAX_TOOL_ITERATIONS = 5
 # Map tool name → required permission key in users.USERS[*]["permissions"].
 TOOL_PERMISSIONS: dict[str, str] = {
     "notion_add_task": "notion",
+    "notion_archive_task": "notion",
     "notion_list_tasks": "notion",
     "notion_add_idea": "idea_lab",
     "gmail_send_email": "gmail",
@@ -52,6 +53,15 @@ async def _dispatch_tool(name: str, args: dict) -> str:
     if name == "notion_list_tasks":
         text = await notion.list_tasks(filter_bucket=args.get("filter_bucket"))
         return text or "(no tasks)"
+    if name == "notion_archive_task":
+        status, matches = await notion.archive_task(title=args["title"])
+        if status == "ok":
+            return f"ok: archived '{matches[0]}'"
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + " | ".join(matches)
+        return "error"
     if name == "notion_add_idea":
         ok = await notion.add_idea(
             title=args["title"], description=args.get("description")

@@ -285,6 +285,119 @@ async def test_list_tasks_http_error() -> None:
     assert out == ""
 
 
+# ---- archive_task ----------------------------------------------------------
+
+
+def _scripted_client(post_script, patch_script):
+    """AsyncClient stand-in with scriptable post() and patch() side effects."""
+    client = MagicMock()
+    pi = {"i": 0}
+    ti = {"i": 0}
+
+    async def _post(url, **kwargs):
+        item = post_script[pi["i"]]
+        pi["i"] += 1
+        return item
+
+    async def _patch(url, **kwargs):
+        item = patch_script[ti["i"]]
+        ti["i"] += 1
+        return item
+
+    client.post = AsyncMock(side_effect=_post)
+    client.patch = AsyncMock(side_effect=_patch)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return patch("integrations.notion.httpx.AsyncClient", return_value=cm), client
+
+
+def _task_page(page_id: str, title: str) -> dict:
+    return {
+        "id": page_id,
+        "properties": {"Task": {"title": [{"plain_text": title}]}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_archive_task_single_match_archives() -> None:
+    cm, client = _scripted_client(
+        post_script=[_resp(200, {"results": [_task_page("page-1", "לקנות חלב")]})],
+        patch_script=[_resp(200, {"id": "page-1", "archived": True})],
+    )
+    with cm:
+        status, matches = await notion.archive_task("חלב")
+    assert status == "ok"
+    assert matches == ["לקנות חלב"]
+    patch_call = client.patch.await_args
+    assert patch_call.args[0].endswith("/pages/page-1")
+    assert patch_call.kwargs["json"] == {"archived": True}
+
+
+@pytest.mark.asyncio
+async def test_archive_task_not_found() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(200, {"results": [_task_page("page-1", "משימה אחרת")]})],
+        patch_script=[],
+    )
+    with cm:
+        status, matches = await notion.archive_task("חלב")
+    assert status == "not_found"
+    assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_archive_task_ambiguous_returns_titles() -> None:
+    cm, client = _scripted_client(
+        post_script=[_resp(200, {"results": [
+            _task_page("page-1", "לקנות חלב"),
+            _task_page("page-2", "לקנות חלב לקפה"),
+        ]})],
+        patch_script=[],
+    )
+    with cm:
+        status, matches = await notion.archive_task("חלב")
+    assert status == "ambiguous"
+    assert set(matches) == {"לקנות חלב", "לקנות חלב לקפה"}
+    client.patch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_archive_task_query_http_error() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(500)],
+        patch_script=[],
+    )
+    with cm:
+        status, matches = await notion.archive_task("חלב")
+    assert status == "error"
+    assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_archive_task_patch_http_error() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(200, {"results": [_task_page("page-1", "לקנות חלב")]})],
+        patch_script=[_resp(500)],
+    )
+    with cm:
+        status, matches = await notion.archive_task("חלב")
+    assert status == "error"
+    assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_archive_task_case_insensitive_match() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(200, {"results": [_task_page("page-1", "Apple RSU Update")]})],
+        patch_script=[_resp(200, {"archived": True})],
+    )
+    with cm:
+        status, matches = await notion.archive_task("apple rsu")
+    assert status == "ok"
+    assert matches == ["Apple RSU Update"]
+
+
 # ---- bucket cache ----------------------------------------------------------
 
 

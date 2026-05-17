@@ -175,6 +175,71 @@ async def add_idea(title: str, description: str | None = None) -> bool:
         return False
 
 
+async def archive_task(title: str) -> tuple[str, list[str]]:
+    """Archive a task in My Task List by fuzzy title match.
+
+    Returns ``(status, matches)`` where status is one of:
+      * ``"ok"`` — exactly one match, archived. ``matches=[matched_title]``.
+      * ``"not_found"`` — no task matches. ``matches=[]``.
+      * ``"ambiguous"`` — multiple matches. ``matches=[title, title, ...]``.
+      * ``"error"`` — HTTP or transport error. ``matches=[]``.
+
+    Match rule: case-insensitive substring against the Task title. Archived
+    pages are excluded by Notion's query default — we don't double-archive.
+    """
+    needle = title.strip().lower()
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{config.NOTION_TASK_DB_ID}/query",
+                headers=_headers(),
+                json={"page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion archive_task query HTTP %s", resp.status_code)
+            log_action("", "notion_archive_task", f"title={title}", f"http_{resp.status_code}")
+            return ("error", [])
+        pages = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion archive_task query error: %s", exc.__class__.__name__)
+        log_action("", "notion_archive_task", f"title={title}", "error")
+        return ("error", [])
+
+    matches: list[tuple[str, str]] = []
+    for page in pages:
+        page_title = _extract_plain_title(page, "Task")
+        if needle in page_title.lower():
+            matches.append((page.get("id", ""), page_title))
+
+    if not matches:
+        log_action("", "notion_archive_task", f"title={title}", "not_found")
+        return ("not_found", [])
+    if len(matches) > 1:
+        log_action("", "notion_archive_task", f"title={title}", "ambiguous")
+        return ("ambiguous", [t for _, t in matches])
+
+    page_id, matched_title = matches[0]
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.patch(
+                f"{NOTION_API}/pages/{page_id}",
+                headers=_headers(),
+                json={"archived": True},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion archive_task patch HTTP %s", resp.status_code)
+            log_action("", "notion_archive_task", f"title={matched_title}", f"http_{resp.status_code}")
+            return ("error", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion archive_task patch error: %s", exc.__class__.__name__)
+        log_action("", "notion_archive_task", f"title={matched_title}", "error")
+        return ("error", [])
+
+    log_action("", "notion_archive_task", f"title={matched_title}", "ok")
+    return ("ok", [matched_title])
+
+
 def _extract_due(page: dict) -> str:
     d = (page.get("properties", {}).get("Date") or {}).get("date")
     return d.get("start", "") if d else ""

@@ -43,6 +43,25 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "notion_archive_task",
+        "description": (
+            "Archive a task from Notion My Task List by fuzzy title match (moves "
+            "to Notion trash, recoverable from the UI). Always confirm with the "
+            "user before calling. If the tool returns 'ambiguous', ask the user "
+            "which one and call again with a more specific title."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Substring of the task title (case-insensitive).",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "notion_list_tasks",
         "description": "List tasks from Notion My Task List. Optional bucket filter.",
         "input_schema": {
