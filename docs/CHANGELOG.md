@@ -6,6 +6,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-17] — Task 2b: Live WhatsApp→Claude end-to-end verified
+- Dedicated SIM activated (+972543278745, 012 Mobile); registered with Meta Cloud API as WABA `951549647669591` / phone-number ID `1140561589137653`
+- Permanent system-user access token issued (`whatsapp_business_messaging` + `whatsapp_business_management`, no expiration); `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` updated in Railway
+- Fresh Anthropic API key created (previous Console workspace never existed → 401s); auto-reload billing configured
+- **Bug fix:** `whatsapp/webhook.py` now prepends `+` to bare sender phones — Meta delivers `from` without the `+`, but `users.py` keys are `+`-prefixed, so the exact-match allowlist was silently denying real inbound messages. Tests had been passing because constructed payloads used the `+` form. Added a regression test pinning the bare-digit case.
+- Live confirmation: WhatsApp "הלו הלו" → "היי! במה אפשר לעזור? :-)"
+- Unblocks Tasks 3/5/6b/7b/8b live verification.
+
 ## [2026-05-16] — Task 9: Audit endpoint + confirm/cancel logging
 - Added `GET /audit` admin endpoint protected by `X-Admin-Token` (constant-time compare), returns last 50 lines as text/plain
 - Added `security.audit.tail(n)` helper for reading recent log lines

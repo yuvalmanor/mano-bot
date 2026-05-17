@@ -53,9 +53,9 @@ The goal is to work in the best way possible while managing the risk.
 | # | Task | Status | Risk | Notes |
 |---|---|---|---|---|
 | 1 | Project scaffold | ✅ Done | 🟢 | |
-| 2 | Echo bot | 🟨 Code done, live test deferred | 🔴 | Code + 22 mocked tests passing; live webhook test will run via Railway in Task 2b |
-| 2b | Live echo test via Railway | ⚠️ Blocked | 🟡 | Railway deployed ✓, webhook registered ✓, POST→200 via Test button ✓. Blocked: need dedicated SIM for bot's WhatsApp number (personal number can't be used — already a WA account). Resume when SIM available. |
-| 3 | Claude integration | ✅ Done | 🔴 | Code + 10 mocked tests passing; live verification deferred until Task 2b's SIM available |
+| 2 | Echo bot | ✅ Done | 🔴 | Code + 22 mocked tests passing; live verified via Task 2b. |
+| 2b | Live echo test via Railway | ✅ Done | 🟡 | Dedicated SIM live on +972543278745 (012 Mobile), Meta WABA `951549647669591` + phone-number ID `1140561589137653` registered, permanent system-user token issued, Railway env updated. Bug found and fixed along the way: `parse_incoming` now prepends `+` to sender phone (Meta delivers bare digits; allowlist stored `+`-prefixed → silent denies). New Anthropic key + auto-reload billing configured. Real WhatsApp → Claude → reply confirmed: "הלו הלו" → "היי! במה אפשר לעזור? :-)". |
+| 3 | Claude integration | ✅ Done | 🔴 | Code + 10 mocked tests passing; live verified via Task 2b. |
 | 4 | Security layer | ✅ Done | 🟢 | auth allowlist, rate limiter, audit log, dedup, kill switch, pending-action store; 15 new tests (47 total) passing |
 | 5 | Notion integration | ✅ Done | 🔴 | Adapter aligned with real schema (Task/Idea titles + Bucket relation to My Life Buckets); 18 Notion tests (65 total) passing; Mano Bot connected to Headquarters + Idea Lab parent pages; 4 NOTION_* env vars set in Railway; live WhatsApp verification deferred until Task 2b SIM available |
 | 6a | Gmail integration — code + mocked tests | ✅ Done | 🟡 | `integrations/gmail.py` + Claude tool + 12 tests (77 total) passing; OAuth helper script at `scripts/oauth_setup_google.py`; README "Google Auth Setup" expanded |
