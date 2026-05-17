@@ -19,6 +19,7 @@ Adapted to Yuval's existing Notion schema (under Headquarters / Idea Lab):
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 TIMEOUT_SECONDS = 10.0
+DEDUPE_WINDOW_MINUTES = 5
 
 # Lazy-loaded bucket caches. Populated on first call to _load_buckets().
 _BUCKET_NAME_TO_ID: dict[str, str] = {}
@@ -108,14 +110,49 @@ async def _resolve_bucket_id(bucket_name: str) -> str | None:
     return _BUCKET_NAME_TO_ID.get(bucket_name)
 
 
-async def add_task(title: str, bucket: str, due_date: str | None = None) -> bool:
-    """Create a task page in My Task List. Returns True on success.
+async def _recent_duplicate_exists(db_id: str, title_prop: str, title: str) -> bool:
+    """Return True if a page with the same title was created in the dedupe window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=DEDUPE_WINDOW_MINUTES)
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{db_id}/query",
+                headers=_headers(),
+                json={
+                    "page_size": 20,
+                    "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+                    "filter": {
+                        "property": title_prop,
+                        "title": {"equals": title},
+                    },
+                },
+            )
+        if resp.status_code >= 400:
+            return False
+        for page in resp.json().get("results", []):
+            created = page.get("created_time", "")
+            try:
+                ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if ts >= cutoff:
+                return True
+        return False
+    except (httpx.TimeoutException, httpx.HTTPError):
+        return False
 
-    The bucket is set as a relation to My Life Buckets. If ``bucket`` cannot be
-    resolved to an existing bucket page, the task is created without a bucket
-    relation (Yuval can re-bucket it manually) and the audit log records
-    ``status=ok_no_bucket``.
+
+async def add_task(title: str, bucket: str, due_date: str | None = None) -> str:
+    """Create a task page in My Task List.
+
+    Returns one of ``"ok"`` | ``"ok_no_bucket"`` | ``"duplicate"`` | ``"error"``.
+    Duplicate = a task with the same exact title was created in the last
+    ``DEDUPE_WINDOW_MINUTES`` (guards against accidental double tool calls).
     """
+    if await _recent_duplicate_exists(config.NOTION_TASK_DB_ID, "Task", title):
+        log_action("", "notion_add_task", f"bucket={bucket}", "duplicate")
+        return "duplicate"
+
     bucket_id = await _resolve_bucket_id(bucket)
 
     properties: dict = {"Task": _title_prop(title)}
@@ -137,21 +174,38 @@ async def add_task(title: str, bucket: str, due_date: str | None = None) -> bool
         if resp.status_code >= 400:
             logger.error("Notion add_task HTTP %s", resp.status_code)
             log_action("", "notion_add_task", f"bucket={bucket}", f"http_{resp.status_code}")
-            return False
+            return "error"
         status = "ok" if bucket_id else "ok_no_bucket"
         log_action("", "notion_add_task", f"bucket={bucket}", status)
-        return True
+        return status
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Notion add_task error: %s", exc.__class__.__name__)
         log_action("", "notion_add_task", f"bucket={bucket}", "error")
-        return False
+        return "error"
 
 
-async def add_idea(title: str, description: str | None = None) -> bool:
-    """Create an idea page in My Ideas. Returns True on success."""
+async def add_idea(
+    title: str, description: str | None = None, bucket: str | None = None
+) -> str:
+    """Create an idea page in My Ideas.
+
+    Returns one of ``"ok"`` | ``"ok_no_bucket"`` | ``"duplicate"`` | ``"error"``.
+    ``bucket`` is optional; when provided it's resolved to a My Life Buckets
+    relation. Unknown bucket → created without relation (status ``ok_no_bucket``).
+    """
+    if await _recent_duplicate_exists(config.NOTION_IDEAS_DB_ID, "Idea", title):
+        log_action("", "notion_add_idea", "", "duplicate")
+        return "duplicate"
+
     properties: dict = {"Idea": _title_prop(title)}
     if description:
         properties["Description"] = _rich_text_prop(description)
+
+    bucket_id: str | None = None
+    if bucket:
+        bucket_id = await _resolve_bucket_id(bucket)
+        if bucket_id:
+            properties["Bucket"] = {"relation": [{"id": bucket_id}]}
 
     payload = {
         "parent": {"database_id": config.NOTION_IDEAS_DB_ID},
@@ -165,14 +219,80 @@ async def add_idea(title: str, description: str | None = None) -> bool:
             )
         if resp.status_code >= 400:
             logger.error("Notion add_idea HTTP %s", resp.status_code)
-            log_action("", "notion_add_idea", "", f"http_{resp.status_code}")
-            return False
-        log_action("", "notion_add_idea", "", "ok")
-        return True
+            log_action("", "notion_add_idea", f"bucket={bucket}", f"http_{resp.status_code}")
+            return "error"
+        status = "ok" if (bucket_id or not bucket) else "ok_no_bucket"
+        log_action("", "notion_add_idea", f"bucket={bucket}", status)
+        return status
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Notion add_idea error: %s", exc.__class__.__name__)
-        log_action("", "notion_add_idea", "", "error")
-        return False
+        log_action("", "notion_add_idea", f"bucket={bucket}", "error")
+        return "error"
+
+
+async def add_idea_comment(idea_title: str, comment: str) -> tuple[str, list[str]]:
+    """Add a Notion page comment to an idea matched by fuzzy title.
+
+    Returns ``(status, matches)`` where status is one of:
+      * ``"ok"`` — single match, comment added. ``matches=[matched_title]``.
+      * ``"not_found"`` — no idea matches. ``matches=[]``.
+      * ``"ambiguous"`` — multiple matches. ``matches=[title, title, ...]``.
+      * ``"error"`` — HTTP or transport error.
+    """
+    needle = idea_title.strip().lower()
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{config.NOTION_IDEAS_DB_ID}/query",
+                headers=_headers(),
+                json={"page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion add_idea_comment query HTTP %s", resp.status_code)
+            log_action("", "notion_add_idea_comment", f"title={idea_title}", f"http_{resp.status_code}")
+            return ("error", [])
+        pages = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion add_idea_comment query error: %s", exc.__class__.__name__)
+        log_action("", "notion_add_idea_comment", f"title={idea_title}", "error")
+        return ("error", [])
+
+    matches: list[tuple[str, str]] = []
+    for page in pages:
+        page_title = _extract_plain_title(page, "Idea")
+        if needle in page_title.lower():
+            matches.append((page.get("id", ""), page_title))
+
+    if not matches:
+        log_action("", "notion_add_idea_comment", f"title={idea_title}", "not_found")
+        return ("not_found", [])
+    if len(matches) > 1:
+        log_action("", "notion_add_idea_comment", f"title={idea_title}", "ambiguous")
+        return ("ambiguous", [t for _, t in matches])
+
+    page_id, matched_title = matches[0]
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/comments",
+                headers=_headers(),
+                json={
+                    "parent": {"page_id": page_id},
+                    "rich_text": [{"type": "text", "text": {"content": comment}}],
+                },
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion add_idea_comment HTTP %s", resp.status_code)
+            log_action("", "notion_add_idea_comment", f"title={matched_title}", f"http_{resp.status_code}")
+            return ("error", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion add_idea_comment error: %s", exc.__class__.__name__)
+        log_action("", "notion_add_idea_comment", f"title={matched_title}", "error")
+        return ("error", [])
+
+    log_action("", "notion_add_idea_comment", f"title={matched_title}", "ok")
+    return ("ok", [matched_title])
 
 
 async def archive_task(title: str) -> tuple[str, list[str]]:

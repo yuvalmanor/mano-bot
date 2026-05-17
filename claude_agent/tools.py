@@ -73,14 +73,40 @@ TOOLS: list[dict] = [
     },
     {
         "name": "notion_add_idea",
-        "description": "Add an idea to the Idea Lab. Always confirm with the user before calling.",
+        "description": (
+            "Add an idea to the Idea Lab. Always confirm with the user before "
+            "calling. After a successful add, ask the user if they have any "
+            "details or comments about the idea; if yes, call notion_comment_idea."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "title": {"type": "string"},
                 "description": {"type": "string"},
+                "bucket": {"type": "string", "enum": BUCKETS},
             },
             "required": ["title"],
+        },
+    },
+    {
+        "name": "notion_comment_idea",
+        "description": (
+            "Add a Notion page comment to an idea in the Idea Lab, matched by "
+            "fuzzy title (case-insensitive substring). Use this when the user "
+            "supplies details/comments about an idea after it was created. "
+            "If the tool returns 'ambiguous', ask the user which one and call "
+            "again with a more specific title."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "idea_title": {
+                    "type": "string",
+                    "description": "Substring of the idea title (case-insensitive).",
+                },
+                "comment": {"type": "string"},
+            },
+            "required": ["idea_title", "comment"],
         },
     },
     {

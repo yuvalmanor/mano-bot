@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from anthropic import AsyncClient
 
@@ -34,22 +35,47 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_archive_task": "notion",
     "notion_list_tasks": "notion",
     "notion_add_idea": "idea_lab",
+    "notion_comment_idea": "idea_lab",
     "gmail_send_email": "gmail",
     "calendar_create_event": "calendar",
     "calendar_list_events": "calendar",
     "drive_search_files": "drive",
 }
 
+_HEBREW_RE = re.compile(r"[֐-׿]")
+
+
+def _detect_language(text: str) -> str:
+    """Return ``"he"`` if the message contains Hebrew chars, else ``"en"``.
+
+    Mirrors the spec's language-priority rule at the code level so it can't be
+    overridden by stale conversation history or prompt-template leakage.
+    """
+    return "he" if _HEBREW_RE.search(text or "") else "en"
+
+
+def _language_directive(lang: str) -> str:
+    if lang == "he":
+        return (
+            "[Language directive for THIS turn: reply in Hebrew (informal, "
+            "אתה). This applies to confirmation prompts, follow-up questions, "
+            "and every word of your reply.]"
+        )
+    return (
+        "[Language directive for THIS turn: reply in English. This applies to "
+        "confirmation prompts, follow-up questions, and every word of your "
+        "reply, regardless of any prior Hebrew turns in this conversation.]"
+    )
+
 
 async def _dispatch_tool(name: str, args: dict) -> str:
     """Run a tool and return a string result for the tool_result block."""
     if name == "notion_add_task":
-        ok = await notion.add_task(
+        return await notion.add_task(
             title=args["title"],
             bucket=args["bucket"],
             due_date=args.get("due_date"),
         )
-        return "ok" if ok else "error"
     if name == "notion_list_tasks":
         text = await notion.list_tasks(filter_bucket=args.get("filter_bucket"))
         return text or "(no tasks)"
@@ -63,10 +89,22 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             return "ambiguous: " + " | ".join(matches)
         return "error"
     if name == "notion_add_idea":
-        ok = await notion.add_idea(
-            title=args["title"], description=args.get("description")
+        return await notion.add_idea(
+            title=args["title"],
+            description=args.get("description"),
+            bucket=args.get("bucket"),
         )
-        return "ok" if ok else "error"
+    if name == "notion_comment_idea":
+        status, matches = await notion.add_idea_comment(
+            idea_title=args["idea_title"], comment=args["comment"]
+        )
+        if status == "ok":
+            return f"ok: commented on '{matches[0]}'"
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + " | ".join(matches)
+        return "error"
     if name == "gmail_send_email":
         ok = await gmail.send_email(
             to=args["to"],
@@ -137,7 +175,12 @@ async def run(user_phone: str, message: str) -> str:
 
     history = CONVERSATION_HISTORY[user_phone]
     messages: list[dict] = list(history)
-    messages.append({"role": "user", "content": message})
+    # Inject a per-turn language directive so tool-flow replies don't drift
+    # back to Hebrew when the latest user message is English (or vice versa).
+    # The directive is added only to the message sent to Claude — history
+    # persists the original user text.
+    directive = _language_directive(_detect_language(message))
+    messages.append({"role": "user", "content": f"{directive}\n\n{message}"})
 
     client = AsyncClient(api_key=config.ANTHROPIC_API_KEY)
     final_text = ""

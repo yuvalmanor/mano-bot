@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import types
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -23,6 +24,11 @@ def _resp(status_code: int, json_body: dict | None = None) -> MagicMock:
     r.status_code = status_code
     r.json.return_value = json_body or {}
     return r
+
+
+def _dedupe_empty() -> MagicMock:
+    """Stand-in response for the dedupe pre-query (no recent duplicates)."""
+    return _resp(200, {"results": []})
 
 
 BUCKETS_DB_RESPONSE = {
@@ -72,15 +78,15 @@ def _scripted_post(script):
 @pytest.mark.asyncio
 async def test_add_task_resolves_bucket_relation() -> None:
     cm, client = _scripted_post([
+        _dedupe_empty(),  # dedupe pre-query
         _resp(200, BUCKETS_DB_RESPONSE),  # _load_buckets
         _resp(200, {"id": "new-task"}),  # create page
     ])
     with cm:
         ok = await notion.add_task("לקנות חלב", "Personal")
-    assert ok is True
+    assert ok in ("ok", "ok_no_bucket")
 
-    # Second call is the page create — verify schema.
-    create_call = client.post.await_args_list[1]
+    create_call = client.post.await_args_list[2]
     body = create_call.kwargs["json"]
     assert body["parent"]["database_id"]
     assert body["properties"]["Task"]["title"][0]["text"]["content"] == "לקנות חלב"
@@ -91,13 +97,14 @@ async def test_add_task_resolves_bucket_relation() -> None:
 @pytest.mark.asyncio
 async def test_add_task_with_due_date() -> None:
     cm, client = _scripted_post([
+        _dedupe_empty(),
         _resp(200, BUCKETS_DB_RESPONSE),
         _resp(200, {"id": "new-task"}),
     ])
     with cm:
         ok = await notion.add_task("דוח", "Career", due_date="2026-06-01")
-    assert ok is True
-    body = client.post.await_args_list[1].kwargs["json"]
+    assert ok in ("ok", "ok_no_bucket")
+    body = client.post.await_args_list[2].kwargs["json"]
     assert body["properties"]["Date"]["date"]["start"] == "2026-06-01"
     assert body["properties"]["Bucket"]["relation"] == [{"id": "bucket-career-id"}]
 
@@ -106,13 +113,14 @@ async def test_add_task_with_due_date() -> None:
 async def test_add_task_unknown_bucket_creates_without_relation() -> None:
     """If bucket name doesn't exist in My Life Buckets, create without Bucket prop."""
     cm, client = _scripted_post([
+        _dedupe_empty(),
         _resp(200, BUCKETS_DB_RESPONSE),
         _resp(200, {"id": "new-task"}),
     ])
     with cm:
         ok = await notion.add_task("משימה", "DoesNotExist")
-    assert ok is True
-    body = client.post.await_args_list[1].kwargs["json"]
+    assert ok in ("ok", "ok_no_bucket")
+    body = client.post.await_args_list[2].kwargs["json"]
     assert "Bucket" not in body["properties"]
     assert body["properties"]["Task"]["title"][0]["text"]["content"] == "משימה"
 
@@ -120,12 +128,13 @@ async def test_add_task_unknown_bucket_creates_without_relation() -> None:
 @pytest.mark.asyncio
 async def test_add_task_http_error() -> None:
     cm, _ = _scripted_post([
+        _dedupe_empty(),
         _resp(200, BUCKETS_DB_RESPONSE),
         _resp(400, {"error": "bad"}),
     ])
     with cm:
         ok = await notion.add_task("x", "Personal")
-    assert ok is False
+    assert ok == "error"
 
 
 @pytest.mark.asyncio
@@ -135,25 +144,27 @@ async def test_add_task_timeout_on_create() -> None:
         raise httpx.TimeoutException("timeout")
 
     cm, _ = _scripted_post([
+        _dedupe_empty(),
         _resp(200, BUCKETS_DB_RESPONSE),
         create_timeout,
     ])
     with cm:
         ok = await notion.add_task("x", "Personal")
-    assert ok is False
+    assert ok == "error"
 
 
 @pytest.mark.asyncio
 async def test_add_task_when_bucket_load_fails() -> None:
     """Bucket load HTTP error → cache empty → create succeeds without Bucket."""
     cm, client = _scripted_post([
+        _dedupe_empty(),
         _resp(500),  # _load_buckets fails
         _resp(200, {"id": "new"}),
     ])
     with cm:
         ok = await notion.add_task("x", "Personal")
-    assert ok is True
-    body = client.post.await_args_list[1].kwargs["json"]
+    assert ok in ("ok", "ok_no_bucket")
+    body = client.post.await_args_list[2].kwargs["json"]
     assert "Bucket" not in body["properties"]
 
 
@@ -162,26 +173,140 @@ async def test_add_task_when_bucket_load_fails() -> None:
 
 @pytest.mark.asyncio
 async def test_add_idea_success() -> None:
-    cm, client = _scripted_post([_resp(200, {"id": "new-idea"})])
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "new-idea"}),
+    ])
     with cm:
         ok = await notion.add_idea("רעיון חדש", description="פרטים")
-    assert ok is True
-    body = client.post.await_args.kwargs["json"]
+    assert ok == "ok"
+    body = client.post.await_args_list[1].kwargs["json"]
     assert body["properties"]["Idea"]["title"][0]["text"]["content"] == "רעיון חדש"
     assert (
         body["properties"]["Description"]["rich_text"][0]["text"]["content"]
         == "פרטים"
     )
+    assert "Bucket" not in body["properties"]
 
 
 @pytest.mark.asyncio
 async def test_add_idea_no_description() -> None:
-    cm, client = _scripted_post([_resp(200, {"id": "new-idea"})])
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "new-idea"}),
+    ])
     with cm:
         ok = await notion.add_idea("רעיון")
-    assert ok is True
-    body = client.post.await_args.kwargs["json"]
+    assert ok == "ok"
+    body = client.post.await_args_list[1].kwargs["json"]
     assert "Description" not in body["properties"]
+
+
+@pytest.mark.asyncio
+async def test_add_idea_with_bucket() -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"id": "new-idea"}),
+    ])
+    with cm:
+        ok = await notion.add_idea("רעיון", bucket="Personal")
+    assert ok == "ok"
+    body = client.post.await_args_list[2].kwargs["json"]
+    assert body["properties"]["Bucket"]["relation"] == [{"id": "bucket-personal-id"}]
+
+
+@pytest.mark.asyncio
+async def test_add_idea_unknown_bucket_creates_without_relation() -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"id": "new-idea"}),
+    ])
+    with cm:
+        ok = await notion.add_idea("רעיון", bucket="NoSuchBucket")
+    assert ok == "ok_no_bucket"
+    body = client.post.await_args_list[2].kwargs["json"]
+    assert "Bucket" not in body["properties"]
+
+
+@pytest.mark.asyncio
+async def test_add_idea_duplicate_returns_duplicate() -> None:
+    """A recently-created idea with the same title should short-circuit."""
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    cm, client = _scripted_post([
+        _resp(200, {"results": [{"id": "dup", "created_time": now_iso}]}),
+    ])
+    with cm:
+        ok = await notion.add_idea("Recipe App")
+    assert ok == "duplicate"
+    # Only the dedupe query should have run.
+    assert client.post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_add_task_duplicate_returns_duplicate() -> None:
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    cm, client = _scripted_post([
+        _resp(200, {"results": [{"id": "dup", "created_time": now_iso}]}),
+    ])
+    with cm:
+        ok = await notion.add_task("Buy milk", "Personal")
+    assert ok == "duplicate"
+    assert client.post.await_count == 1
+
+
+# ---- add_idea_comment ------------------------------------------------------
+
+
+def _idea_page(page_id: str, title: str) -> dict:
+    return {
+        "id": page_id,
+        "properties": {"Idea": {"title": [{"plain_text": title}]}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_add_idea_comment_single_match() -> None:
+    cm, client = _scripted_post([
+        _resp(200, {"results": [_idea_page("idea-1", "Recipe App")]}),
+        _resp(200, {"id": "comment-1"}),
+    ])
+    with cm:
+        status, matches = await notion.add_idea_comment("recipe", "needs auth")
+    assert status == "ok"
+    assert matches == ["Recipe App"]
+    comment_call = client.post.await_args_list[1]
+    assert comment_call.args[0].endswith("/comments")
+    assert comment_call.kwargs["json"]["parent"] == {"page_id": "idea-1"}
+    assert (
+        comment_call.kwargs["json"]["rich_text"][0]["text"]["content"] == "needs auth"
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_idea_comment_not_found() -> None:
+    cm, _ = _scripted_post([
+        _resp(200, {"results": [_idea_page("idea-1", "Other")]}),
+    ])
+    with cm:
+        status, matches = await notion.add_idea_comment("recipe", "x")
+    assert status == "not_found"
+    assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_add_idea_comment_ambiguous() -> None:
+    cm, _ = _scripted_post([
+        _resp(200, {"results": [
+            _idea_page("idea-1", "Recipe App"),
+            _idea_page("idea-2", "Recipe App v2"),
+        ]}),
+    ])
+    with cm:
+        status, matches = await notion.add_idea_comment("recipe", "x")
+    assert status == "ambiguous"
+    assert set(matches) == {"Recipe App", "Recipe App v2"}
 
 
 # ---- list_tasks ------------------------------------------------------------
@@ -405,15 +530,15 @@ async def test_archive_task_case_insensitive_match() -> None:
 async def test_bucket_cache_loads_once() -> None:
     """Two add_task calls in a row should only hit the buckets DB once."""
     cm, client = _scripted_post([
+        _dedupe_empty(),  # add_task("a") dedupe
         _resp(200, BUCKETS_DB_RESPONSE),
         _resp(200, {"id": "t1"}),
+        _dedupe_empty(),  # add_task("b") dedupe
         _resp(200, {"id": "t2"}),
     ])
     with cm:
         await notion.add_task("a", "Personal")
         await notion.add_task("b", "Career")
 
-    # 3 total POSTs: 1 buckets load + 2 page creates.
-    assert client.post.await_count == 3
-    first_url = client.post.await_args_list[0].args[0]
-    assert "/databases/" in first_url  # the buckets query
+    # 5 total POSTs: 2 dedupe + 1 buckets load + 2 page creates.
+    assert client.post.await_count == 5
