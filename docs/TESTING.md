@@ -46,9 +46,9 @@ git add . && git commit -m "your message" && git push
 | Test | Status | Notes |
 |---|---|---|
 | Send "שלום" → Hebrew reply from Claude (not echo) | ✅ | 2026-05-17 — "הלו הלו" → "היי! במה אפשר לעזור? :-)" (Task 2b live verification) |
-| Send English message → Claude replies in Hebrew by default | 🔲 | |
-| Send "reply in English" → Claude switches to English | 🔲 | |
-| Claude is concise and direct (no filler, no pleasantries) | 🔲 | |
+| Send English message → Claude replies in same language | ✅ | 2026-05-17 — original spec was "Hebrew by default"; behavior changed mid-task (commit 0f95196) to mirror the user's language per message. Verified: "What's the time in Tokyo right now?" → Hebrew reply (pre-change), then post-switch "What's the time in NYC right now?" → English reply. |
+| Send "reply in English" → Claude switches to English | ✅ | 2026-05-17 — "Got it, switching to English from now on!" then subsequent English Q gets English reply. Switch held across turns. |
+| Claude is concise and direct (no filler, no pleasantries) | ✅ | 2026-05-17 — "tell me a joke" → "Why don't scientists trust atoms? Because they make up everything!" Short, direct, no LLM dashes. |
 
 ---
 

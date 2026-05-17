@@ -6,6 +6,10 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-17] — Task 3 closed out + language-mirroring behavior change
+- All 4 TESTING.md Task 3 rows live-verified via dedicated SIM (Hebrew default, English-input handling, explicit "reply in English" switch, conciseness/tone)
+- Behavior change: system prompt now mirrors the user's language per message instead of defaulting to Hebrew and requiring an explicit switch. Hebrew register guidance retained for Hebrew messages.
+
 ## [2026-05-17] — Task 2b: Live WhatsApp→Claude end-to-end verified
 - Dedicated SIM activated (+972543278745, 012 Mobile); registered with Meta Cloud API as WABA `951549647669591` / phone-number ID `1140561589137653`
 - Permanent system-user access token issued (`whatsapp_business_messaging` + `whatsapp_business_management`, no expiration); `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` updated in Railway
