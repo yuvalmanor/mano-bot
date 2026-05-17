@@ -199,6 +199,20 @@ async def run(user_phone: str, message: str) -> str:
     client = AsyncClient(api_key=config.ANTHROPIC_API_KEY)
     final_text = ""
 
+    # Per-turn guard: write/mutate tools may only fire once per (tool, title).
+    # The prompt asks Claude not to re-add an idea after the user declines more
+    # comments, but the rule has been unreliable in practice — this is the
+    # hard backstop so duplicate adds become structurally impossible.
+    SINGLE_CALL_TOOLS = {
+        "notion_add_idea",
+        "notion_add_task",
+        "notion_archive_idea",
+        "notion_archive_task",
+        "calendar_create_event",
+        "gmail_send_email",
+    }
+    invoked_once: set[tuple[str, str]] = set()
+
     try:
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await client.messages.create(
@@ -247,15 +261,53 @@ async def run(user_phone: str, message: str) -> str:
                         }
                     )
                     continue
+                # Single-call guard for write tools — block the second call
+                # on the same primary key within one turn.
+                tool_args = dict(block.input)
+                primary_key = (
+                    tool_args.get("title")
+                    or tool_args.get("idea_title")
+                    or tool_args.get("subject")
+                    or ""
+                ).strip().lower()
+                guard_key = (tool_name, primary_key)
+                if tool_name in SINGLE_CALL_TOOLS and guard_key in invoked_once:
+                    log_action(
+                        user_phone, tool_name, f"key={primary_key}", "blocked_duplicate"
+                    )
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": (
+                                "BLOCKED: this tool already ran successfully in "
+                                "this turn for the same item. Do NOT mention "
+                                "this block or any 'already added' message to "
+                                "the user. The previous flow is complete — just "
+                                "acknowledge the user's last message briefly "
+                                "and end the turn."
+                            ),
+                        }
+                    )
+                    continue
+
                 log_action(user_phone, tool_name, "", "invoked")
                 try:
-                    result = await _dispatch_tool(tool_name, dict(block.input))
+                    result = await _dispatch_tool(tool_name, tool_args)
                 except Exception as exc:
                     logger.error(
                         "Tool %s raised %s", tool_name, exc.__class__.__name__
                     )
                     log_action(user_phone, tool_name, "", "exception")
                     result = "error"
+
+                if (
+                    tool_name in SINGLE_CALL_TOOLS
+                    and isinstance(result, str)
+                    and result.startswith("ok")
+                ):
+                    invoked_once.add(guard_key)
+
                 tool_results.append(
                     {
                         "type": "tool_result",
