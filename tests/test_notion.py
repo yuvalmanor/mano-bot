@@ -523,6 +523,90 @@ async def test_archive_task_case_insensitive_match() -> None:
     assert matches == ["Apple RSU Update"]
 
 
+# ---- archive_idea / list_ideas ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_archive_idea_single_match_archives() -> None:
+    cm, client = _scripted_client(
+        post_script=[_resp(200, {"results": [_idea_page("idea-1", "Recipe App")]})],
+        patch_script=[_resp(200, {"id": "idea-1", "archived": True})],
+    )
+    with cm:
+        status, matches = await notion.archive_idea("recipe")
+    assert status == "ok"
+    assert matches == ["Recipe App"]
+    patch_call = client.patch.await_args
+    assert patch_call.args[0].endswith("/pages/idea-1")
+    assert patch_call.kwargs["json"] == {"archived": True}
+
+
+@pytest.mark.asyncio
+async def test_archive_idea_not_found() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(200, {"results": [_idea_page("idea-1", "Other")]})],
+        patch_script=[],
+    )
+    with cm:
+        status, matches = await notion.archive_idea("recipe")
+    assert status == "not_found"
+    assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_archive_idea_ambiguous() -> None:
+    cm, _ = _scripted_client(
+        post_script=[_resp(200, {"results": [
+            _idea_page("idea-1", "Recipe App"),
+            _idea_page("idea-2", "Recipe App v2"),
+        ]})],
+        patch_script=[],
+    )
+    with cm:
+        status, matches = await notion.archive_idea("recipe")
+    assert status == "ambiguous"
+    assert set(matches) == {"Recipe App", "Recipe App v2"}
+
+
+@pytest.mark.asyncio
+async def test_list_ideas_groups_by_bucket() -> None:
+    pages = {
+        "results": [
+            {
+                "properties": {
+                    "Idea": {"title": [{"plain_text": "Idea A"}]},
+                    "Bucket": {"relation": [{"id": "bucket-personal-id"}]},
+                }
+            },
+            {
+                "properties": {
+                    "Idea": {"title": [{"plain_text": "Idea B"}]},
+                    "Bucket": {"relation": []},
+                }
+            },
+        ]
+    }
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, pages),
+    ])
+    with cm:
+        out = await notion.list_ideas()
+    assert "💡 Personal" in out
+    assert "Idea A" in out
+    assert "Idea B" in out
+
+
+@pytest.mark.asyncio
+async def test_list_ideas_unknown_bucket_returns_empty() -> None:
+    cm, _ = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+    ])
+    with cm:
+        out = await notion.list_ideas(filter_bucket="NopeBucket")
+    assert out == ""
+
+
 # ---- bucket cache ----------------------------------------------------------
 
 

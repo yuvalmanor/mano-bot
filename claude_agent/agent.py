@@ -35,6 +35,8 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_archive_task": "notion",
     "notion_list_tasks": "notion",
     "notion_add_idea": "idea_lab",
+    "notion_list_ideas": "idea_lab",
+    "notion_archive_idea": "idea_lab",
     "notion_comment_idea": "idea_lab",
     "gmail_send_email": "gmail",
     "calendar_create_event": "calendar",
@@ -94,6 +96,18 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             description=args.get("description"),
             bucket=args.get("bucket"),
         )
+    if name == "notion_list_ideas":
+        text = await notion.list_ideas(filter_bucket=args.get("filter_bucket"))
+        return text or "(no ideas)"
+    if name == "notion_archive_idea":
+        status, matches = await notion.archive_idea(title=args["title"])
+        if status == "ok":
+            return f"ok: archived '{matches[0]}'"
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + " | ".join(matches)
+        return "error"
     if name == "notion_comment_idea":
         status, matches = await notion.add_idea_comment(
             idea_title=args["idea_title"], comment=args["comment"]

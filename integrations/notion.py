@@ -230,6 +230,118 @@ async def add_idea(
         return "error"
 
 
+async def archive_idea(title: str) -> tuple[str, list[str]]:
+    """Archive an idea from My Ideas by fuzzy title match.
+
+    Same contract as ``archive_task``: returns ``(status, matches)`` with
+    status in ``{"ok", "not_found", "ambiguous", "error"}``.
+    """
+    needle = title.strip().lower()
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{config.NOTION_IDEAS_DB_ID}/query",
+                headers=_headers(),
+                json={"page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion archive_idea query HTTP %s", resp.status_code)
+            log_action("", "notion_archive_idea", f"title={title}", f"http_{resp.status_code}")
+            return ("error", [])
+        pages = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion archive_idea query error: %s", exc.__class__.__name__)
+        log_action("", "notion_archive_idea", f"title={title}", "error")
+        return ("error", [])
+
+    matches: list[tuple[str, str]] = []
+    for page in pages:
+        page_title = _extract_plain_title(page, "Idea")
+        if needle in page_title.lower():
+            matches.append((page.get("id", ""), page_title))
+
+    if not matches:
+        log_action("", "notion_archive_idea", f"title={title}", "not_found")
+        return ("not_found", [])
+    if len(matches) > 1:
+        log_action("", "notion_archive_idea", f"title={title}", "ambiguous")
+        return ("ambiguous", [t for _, t in matches])
+
+    page_id, matched_title = matches[0]
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.patch(
+                f"{NOTION_API}/pages/{page_id}",
+                headers=_headers(),
+                json={"archived": True},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion archive_idea patch HTTP %s", resp.status_code)
+            log_action("", "notion_archive_idea", f"title={matched_title}", f"http_{resp.status_code}")
+            return ("error", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion archive_idea patch error: %s", exc.__class__.__name__)
+        log_action("", "notion_archive_idea", f"title={matched_title}", "error")
+        return ("error", [])
+
+    log_action("", "notion_archive_idea", f"title={matched_title}", "ok")
+    return ("ok", [matched_title])
+
+
+async def list_ideas(filter_bucket: str | None = None) -> str:
+    """Return ideas grouped by bucket. Empty string on error / no matches."""
+    await _load_buckets()
+
+    payload: dict = {"page_size": 100}
+    if filter_bucket:
+        bucket_id = _BUCKET_NAME_TO_ID.get(filter_bucket)
+        if not bucket_id:
+            log_action("", "notion_list_ideas", f"unknown_bucket={filter_bucket}", "empty")
+            return ""
+        payload["filter"] = {
+            "property": "Bucket", "relation": {"contains": bucket_id}
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{config.NOTION_IDEAS_DB_ID}/query",
+                headers=_headers(),
+                json=payload,
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion list_ideas HTTP %s", resp.status_code)
+            log_action("", "notion_list_ideas", "", f"http_{resp.status_code}")
+            return ""
+        data = resp.json()
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion list_ideas error: %s", exc.__class__.__name__)
+        log_action("", "notion_list_ideas", "", "error")
+        return ""
+
+    pages = data.get("results", [])
+    if not pages:
+        log_action("", "notion_list_ideas", "", "empty")
+        return ""
+
+    by_bucket: dict[str, list[str]] = {}
+    for page in pages:
+        title = _extract_plain_title(page, "Idea") or "(ללא שם)"
+        bucket = _extract_bucket_name(page)
+        by_bucket.setdefault(bucket, []).append(title)
+
+    lines: list[str] = []
+    for bucket in sorted(by_bucket.keys()):
+        lines.append(f"💡 {bucket}")
+        for title in by_bucket[bucket]:
+            lines.append(f"  • {title}")
+        lines.append("")
+
+    log_action("", "notion_list_ideas", f"count={len(pages)}", "ok")
+    return "\n".join(lines).rstrip()
+
+
 async def add_idea_comment(idea_title: str, comment: str) -> tuple[str, list[str]]:
     """Add a Notion page comment to an idea matched by fuzzy title.
 

@@ -89,6 +89,35 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "notion_list_ideas",
+        "description": "List ideas from Notion Idea Lab. Optional bucket filter.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter_bucket": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "notion_archive_idea",
+        "description": (
+            "Archive an idea from the Idea Lab by fuzzy title match (moves to "
+            "Notion trash, recoverable from the UI). Always confirm with the "
+            "user before calling. If the tool returns 'ambiguous', ask the user "
+            "which one and call again with a more specific title."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Substring of the idea title (case-insensitive).",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "notion_comment_idea",
         "description": (
             "Add a Notion page comment to an idea in the Idea Lab, matched by "
