@@ -203,7 +203,8 @@ async def list_tasks(filter_bucket: str | None = None) -> str:
     await _load_buckets()
 
     payload: dict = {"page_size": 100}
-    not_done_filter = {"property": "Done", "checkbox": {"equals": False}}
+    # Property name has a literal leading space in the live schema (" Done").
+    not_done_filter = {"property": " Done", "checkbox": {"equals": False}}
     if filter_bucket:
         bucket_id = _BUCKET_NAME_TO_ID.get(filter_bucket)
         if not bucket_id:
