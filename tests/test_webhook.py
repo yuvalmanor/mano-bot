@@ -58,6 +58,12 @@ def test_parse_incoming_extracts_text_message() -> None:
     }
 
 
+def test_parse_incoming_normalizes_bare_phone() -> None:
+    parsed = parse_incoming(_text_payload("hi", phone="972542159121"))
+    assert parsed is not None
+    assert parsed["from_phone"] == "+972542159121"
+
+
 def test_parse_incoming_ignores_status_updates() -> None:
     payload = {
         "entry": [

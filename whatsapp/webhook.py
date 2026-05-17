@@ -36,6 +36,8 @@ def parse_incoming(payload: Any) -> dict | None:
                 from_phone = msg.get("from")
                 if not (message_type and message_id and from_phone):
                     return None
+                if not from_phone.startswith("+"):
+                    from_phone = "+" + from_phone
                 if message_type != "text":
                     return None
                 text = (msg.get("text") or {}).get("body")
