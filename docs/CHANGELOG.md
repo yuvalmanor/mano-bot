@@ -6,6 +6,16 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-17] — Idea Lab hardening + language-leak code fix + KNOWN_ISSUES.md
+- `claude_agent/agent.py`: per-message language detection (Hebrew chars → he, else en) injects a per-turn directive into the user message. Prompt-only language mirroring kept leaking Hebrew on tool flows after three prompt rewrites; this is the code-level backstop.
+- `claude_agent/agent.py`: per-turn single-call guard for write/mutate tools (`notion_add_idea/task`, `notion_archive_*`, `calendar_create_event`, `gmail_send_email`). Second invocation on the same primary key in one `run()` is short-circuited with a BLOCKED tool_result.
+- `integrations/notion.py`: `add_idea` now accepts optional bucket (resolved against My Life Buckets, same path as `add_task`); 5-minute dedupe pre-query on both `add_task` and `add_idea`; return type narrowed to string status (`ok` / `ok_no_bucket` / `duplicate` / `error`). New `add_idea_comment` (Notion page comment via `/v1/comments`, fuzzy-title match), `archive_idea`, and `list_ideas`.
+- `claude_agent/tools.py`: bucket on `notion_add_idea`; new tools `notion_comment_idea`, `notion_list_ideas`, `notion_archive_idea`.
+- `claude_agent/system_prompt.py`: Idea Lab is now bucket-aware; explicit end-of-flow rule after add/comment; "do not search Tasks for Ideas" cross-DB ban; new "Honesty about capabilities" section ("I don't have a way to do X" instead of fishing for context); anti-sycophancy section.
+- 136 tests pass (up from 124): added coverage for idea bucket happy path + unknown bucket fallback, both add tools' duplicate short-circuit, `add_idea_comment` (ok/not_found/ambiguous), `archive_idea` (3 branches), `list_ideas` (group-by-bucket + unknown-bucket-empty).
+- Root cause of the two "Recipe App" rows: Claude was firing `notion_add_idea` twice within a turn (dedupe pre-query + per-turn guard now prevent it). Misconfigured local `NOTION_IDEAS_DB_ID` (was pointing at My Life Buckets DB) found and corrected mid-session — Railway env was unaffected.
+- New file: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) with ISSUE-001 — bogus "already added a moment ago" tail message still appears after the comment flow ends with "no", even after the per-turn guard. Hypothesis: the duplicate add happens in the *next* WhatsApp turn (its own `run()`), so the per-turn guard set is fresh and the dedupe query's `duplicate` return gets narrated. Suggested next step: change dispatch so a `duplicate` return becomes a silent no-op tool_result; consider persisting `invoked_once`-like state across turns per-phone with a short TTL.
+
 ## [2026-05-17] — Task 3 closed out + language-mirroring behavior change
 - All 4 TESTING.md Task 3 rows live-verified via dedicated SIM (Hebrew default, English-input handling, explicit "reply in English" switch, conciseness/tone)
 - Behavior change: system prompt now mirrors the user's language per message instead of defaulting to Hebrew and requiring an explicit switch. Hebrew register guidance retained for Hebrew messages.
