@@ -170,3 +170,12 @@ Before overriding any decision, understand the rationale. If you do override, do
 **Alternative rejected:** Testing at Task 11 — too late; a broken webhook would require re-testing all tasks.
 **Note:** ngrok is still avoided. Railway is 🟡 (git push only for Claude's part); Yuval sets up the Railway project and Meta webhook in the dashboard (~5 min).
 **Date:** 2026-05-16
+
+---
+
+### D-020 — Sender phone normalization at the parse boundary
+
+**Decision:** `whatsapp/webhook.py::parse_incoming` prepends `+` to the sender phone if missing. All downstream code (users registry, audit log, router) sees a single canonical form (`+<country><number>`).
+**Rationale:** Meta Cloud API delivers the `from` field as bare digits (`972542159121`), but `users.py` stores numbers with the `+` prefix. The exact-match allowlist was silently denying every real inbound message — discovered in Task 2b live testing. Tests had been passing because constructed payloads used the `+` form; tests now also cover the bare-digit case.
+**Alternative rejected:** Normalize inside `is_authorized` / `get_user` / `has_permission`. Rejected because it puts the same normalization in three places and the registry-side functions are also called from places that already pass canonical form (router, audit). Single normalization at the entry boundary is simpler.
+**Date:** 2026-05-17

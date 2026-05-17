@@ -36,8 +36,8 @@ git add . && git commit -m "your message" && git push
 | Unit tests pass (mocked HTTP, no server needed) | 🔲 | |
 | GET /webhook with correct verify_token → returns challenge | 🔲 | |
 | GET /webhook with wrong verify_token → 403 | 🔲 | |
-| Send WhatsApp message via Railway → receive identical echo back | 🔲 | |
-| Delivery/read receipts produce no reply | 🔲 | |
+| Send WhatsApp message via Railway → receive identical echo back | ✅ | 2026-05-17 via dedicated SIM +972543278745 (Task 2b); Claude integration now layered on top — see Task 3 row |
+| Delivery/read receipts produce no reply | ✅ | 2026-05-17 — `parse_incoming` returns None for `statuses` payloads (covered by test_parse_incoming_ignores_status_updates) |
 
 ---
 
@@ -45,7 +45,7 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| Send "שלום" → Hebrew reply from Claude (not echo) | 🔲 | |
+| Send "שלום" → Hebrew reply from Claude (not echo) | ✅ | 2026-05-17 — "הלו הלו" → "היי! במה אפשר לעזור? :-)" (Task 2b live verification) |
 | Send English message → Claude replies in Hebrew by default | 🔲 | |
 | Send "reply in English" → Claude switches to English | 🔲 | |
 | Claude is concise and direct (no filler, no pleasantries) | 🔲 | |
