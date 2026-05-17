@@ -203,15 +203,20 @@ async def list_tasks(filter_bucket: str | None = None) -> str:
     await _load_buckets()
 
     payload: dict = {"page_size": 100}
+    not_done_filter = {"property": "Done", "checkbox": {"equals": False}}
     if filter_bucket:
         bucket_id = _BUCKET_NAME_TO_ID.get(filter_bucket)
         if not bucket_id:
             log_action("", "notion_list_tasks", f"unknown_bucket={filter_bucket}", "empty")
             return ""
         payload["filter"] = {
-            "property": "Bucket",
-            "relation": {"contains": bucket_id},
+            "and": [
+                {"property": "Bucket", "relation": {"contains": bucket_id}},
+                not_done_filter,
+            ]
         }
+    else:
+        payload["filter"] = not_done_filter
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:

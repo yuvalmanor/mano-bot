@@ -242,11 +242,26 @@ async def test_list_tasks_with_bucket_filter() -> None:
     ])
     with cm:
         await notion.list_tasks(filter_bucket="Personal")
-    # Second call is the query — verify filter
     query_call = client.post.await_args_list[1]
     body = query_call.kwargs["json"]
-    assert body["filter"]["property"] == "Bucket"
-    assert body["filter"]["relation"]["contains"] == "bucket-personal-id"
+    clauses = body["filter"]["and"]
+    bucket_clause = next(c for c in clauses if c.get("property") == "Bucket")
+    done_clause = next(c for c in clauses if c.get("property") == "Done")
+    assert bucket_clause["relation"]["contains"] == "bucket-personal-id"
+    assert done_clause["checkbox"] == {"equals": False}
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_unfiltered_excludes_done() -> None:
+    cm, client = _scripted_post([
+        _resp(200, BUCKETS_DB_RESPONSE),
+        _resp(200, {"results": []}),
+    ])
+    with cm:
+        await notion.list_tasks()
+    query_call = client.post.await_args_list[1]
+    body = query_call.kwargs["json"]
+    assert body["filter"] == {"property": "Done", "checkbox": {"equals": False}}
 
 
 @pytest.mark.asyncio
