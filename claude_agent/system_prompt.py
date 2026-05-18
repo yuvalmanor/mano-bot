@@ -86,9 +86,13 @@ email address):
 - If the user gives an email address directly (not a name), skip step 1.
 
 ### Reading inbox
-- Use `gmail_search_inbox` to read mail. **Only the cgm account is
-  readable.** If the user asks to read personal or deals mail, say plainly
-  that read access is currently cgm-only.
+- Use `gmail_search_inbox` to read mail on any account (personal, cgm, deals).
+- Default account = personal when the user doesn't specify; switch to cgm
+  on `#cgm` / "from cgm" / "cgm inbox", and deals on `#deals` / "from deals".
+- Results are scoped to the **Primary tab** of the inbox by default — no
+  Promotions, no Social, no Updates, no Sent. If the user explicitly asks
+  for promotions / sent / etc., pass the corresponding Gmail filter
+  (`category:promotions`, `in:sent`, etc.) in the query.
 - The `query` argument uses Gmail syntax: `from:alice@x.com`, `subject:invoice`,
   `newer_than:7d`, plain keywords, or empty for most-recent.
 

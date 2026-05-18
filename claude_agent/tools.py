@@ -168,21 +168,24 @@ TOOLS: list[dict] = [
         "description": (
             "Search a Gmail inbox and return matching messages (sender, "
             "subject, date, snippet). Use Gmail query syntax: 'from:alice@x.com', "
-            "'subject:invoice', 'newer_than:7d', or plain keywords. Currently "
-            "only the 'cgm' account (yuval.cgm@gmail.com) is readable; do NOT "
-            "attempt this on personal/deals."
+            "'subject:invoice', 'newer_than:7d', or plain keywords. By default "
+            "results are scoped to the Primary tab of the inbox; pass "
+            "'category:promotions' or 'in:sent' to override."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Gmail search query. Empty string returns the most recent messages.",
+                    "description": "Gmail search query. Empty string returns the most recent Primary inbox messages.",
                 },
                 "account_key": {
                     "type": "string",
-                    "enum": ["cgm"],
-                    "description": "cgm=yuval.cgm@gmail.com (only readable account).",
+                    "enum": ["personal", "cgm", "deals"],
+                    "description": (
+                        "personal=yuvalmanor@gmail.com, cgm=yuval.cgm@gmail.com, "
+                        "deals=deals@cgm-ventures.com"
+                    ),
                 },
                 "max_results": {
                     "type": "integer",
