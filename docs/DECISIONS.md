@@ -173,6 +173,33 @@ Before overriding any decision, understand the rationale. If you do override, do
 
 ---
 
+### D-021 — Gmail scope widened beyond send (supersedes D-006 for Gmail)
+
+**Decision:** Gmail OAuth grants `gmail.send` + `gmail.readonly` + `gmail.modify` (plus People API scopes for contacts). Calendar and Drive scopes are unchanged.
+**Rationale:** Task 6c sharpened the Gmail product surface: read the Primary inbox, look up contacts before asking the user for an email address, and trash messages. Each of these is a real product capability worth a scope, and the failure mode of read/trash is bounded — read returns metadata + snippets (no message bodies parsed by the bot), trash is reversible from the Gmail UI for 30 days. Permanent delete (`mail.google.com`) was explicitly NOT requested.
+**Alternative rejected:** Keep send-only and ask the user for every recipient address + every "what's in my inbox" question. Bot becomes an outbound-only sender, which makes the contacts-lookup and read flows impossible.
+**Date:** 2026-05-18
+
+---
+
+### D-022 — Gmail read defaults to Primary tab with empty-result fallback
+
+**Decision:** `gmail.search_inbox` injects `in:inbox category:primary` into every query that doesn't already specify `in:`/`label:`/`category:`. If that returns zero hits AND the filter was injected (not user-supplied), retry once without `category:primary`.
+**Rationale:** The tool is named "search inbox" and the user's stated intent is the Primary tab — not Promotions, Social, Updates, Spam, or Sent. Gmail's `messages.list` with empty `q` returns ALL mail, which surfaced Sent items and promo emails in live verification. Workspace / business accounts (deals@cgm-ventures.com) don't have category tabs enabled, so `category:primary` would always return zero hits there — the single-retry fallback handles that without a probe call or account-type detection.
+**Alternative rejected:** Detect account type up-front (Workspace vs personal Gmail) and choose the filter accordingly. Rejected — requires an extra API call per search and Google doesn't expose a clean "is this a Workspace account?" endpoint.
+**Date:** 2026-05-18
+
+---
+
+### D-023 — Code-level scrubbers as backstops for unreliable prompt rules
+
+**Decision:** When a prompt rule is critical to product UX but the model violates it more than ~5% of the time, add a code-level scrubber on the final reply as a hard backstop. Keep the prompt rule as the soft intent. Currently scrubbed: em-dash (U+2014) and en-dash (U+2013) → plain `-` (`_scrub_llm_punctuation` in `claude_agent/agent.py`).
+**Rationale:** Two prior instances showed prompt-only rules don't hold reliably enough for product-critical behavior — the Hebrew-language leak (fixed with per-turn language directive in `0f95196`) and the per-turn write-tool dedup (fixed with `invoked_once` set in `ef30bdd`). Em-dash leak is the same class: model emits banned punctuation ~10% of the time despite explicit prompt rules. Code-level scrubber is deterministic; prompt rule stays for cases where the scrubber can't reach (e.g. body of email Mano composes — the scrubber runs on the reply only, not on intermediate tool inputs).
+**Alternative rejected:** Strengthen the prompt rule further. Tried three times for the Hebrew leak, three times for the em-dash leak. Diminishing returns and the prompt is already dense.
+**Date:** 2026-05-18
+
+---
+
 ### D-020 — Sender phone normalization at the parse boundary
 
 **Decision:** `whatsapp/webhook.py::parse_incoming` prepends `+` to the sender phone if missing. All downstream code (users registry, audit log, router) sees a single canonical form (`+<country><number>`).
