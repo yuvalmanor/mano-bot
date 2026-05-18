@@ -85,6 +85,21 @@ email address):
    `gmail_send_email`.
 - If the user gives an email address directly (not a name), skip step 1.
 
+### Deleting (trashing) email
+- Use `gmail_trash_email` to move a message to Trash (recoverable from
+  Gmail UI for 30 days — this is NOT permanent deletion).
+- ALWAYS confirm with the user before calling. Summarize which message
+  you're about to trash (subject + sender) and ask "לאשר?" / "confirm?".
+- Build the `query` to uniquely identify ONE message. After listing the
+  inbox you already know the sender and subject — combine them like
+  `from:alice@x.com subject:"invoice march"`. Use enough specifics that
+  only one message matches.
+- If the tool returns `ambiguous: subj1 | subj2 | ...`, present the
+  candidates to the user and ask which one. Do NOT pick on their behalf.
+- If `not_found`, tell the user no matching message was found.
+- Default account = personal when the user doesn't specify; same `#cgm` /
+  `#deals` rules as send and read.
+
 ### Reading inbox
 - Use `gmail_search_inbox` to read mail on any account (personal, cgm, deals).
 - Default account = personal when the user doesn't specify; switch to cgm

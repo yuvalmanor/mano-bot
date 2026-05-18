@@ -370,13 +370,13 @@ def test_scope_query_respects_label_filter() -> None:
 @pytest.mark.asyncio
 async def test_search_inbox_query_scoped_to_primary_in_api_call() -> None:
     creds = _make_creds(valid=True)
-    captured = {}
+    queries: list[str] = []
 
     async def fake_get(self, url, headers=None, params=None):
         resp = MagicMock()
         resp.status_code = 200
         if url.endswith("/messages"):
-            captured["q"] = params.get("q")
+            queries.append(params.get("q"))
             resp.json.return_value = {}
         else:
             resp.json.return_value = {}
@@ -393,7 +393,9 @@ async def test_search_inbox_query_scoped_to_primary_in_api_call() -> None:
         cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
         await gmail.search_inbox("", account_key="cgm")
 
-    assert captured["q"] == "in:inbox category:primary"
+    # First call is Primary-scoped; a fallback retry without category:primary
+    # is fine (Workspace accounts need it). Assert the first attempt.
+    assert queries[0] == "in:inbox category:primary"
 
 
 @pytest.mark.asyncio
@@ -415,6 +417,225 @@ async def test_search_inbox_timeout_returns_empty() -> None:
         out = await gmail.search_inbox("x", account_key="cgm")
 
     assert out == ""
+
+
+# ---- Workspace fallback (no Primary tab) ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_workspace_fallback_when_primary_empty() -> None:
+    creds = _make_creds(valid=True)
+    calls: list[str] = []
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            calls.append(params["q"])
+            if "category:primary" in params["q"]:
+                resp.json.return_value = {}  # empty under Primary
+            else:
+                resp.json.return_value = {"messages": [{"id": "m1"}]}
+        else:
+            resp.json.return_value = {
+                "snippet": "x",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "biz@x.com"},
+                        {"name": "Subject", "value": "Deal"},
+                        {"name": "Date", "value": "now"},
+                    ]
+                },
+            }
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_DEALS = _b64(VALID_TOKEN_INFO)
+        out = await gmail.search_inbox("", account_key="deals")
+
+    # Two list calls — first with category:primary, second without.
+    assert len(calls) == 2
+    assert "category:primary" in calls[0]
+    assert "category:primary" not in calls[1]
+    assert "in:inbox" in calls[1]
+    assert "Deal" in out
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_no_fallback_when_user_supplied_category() -> None:
+    creds = _make_creds(valid=True)
+    calls: list[str] = []
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            calls.append(params["q"])
+            resp.json.return_value = {}
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        await gmail.search_inbox("category:promotions", account_key="cgm")
+
+    # Only one call — user explicitly asked for promotions, no fallback retry.
+    assert len(calls) == 1
+
+
+# ---- Trash ----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trash_by_query_not_found() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {}
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        status, subs = await gmail.trash_by_query("zzz", account_key="cgm")
+
+    assert status == "not_found"
+    assert subs == []
+
+
+@pytest.mark.asyncio
+async def test_trash_by_query_happy_path() -> None:
+    creds = _make_creds(valid=True)
+    posted: list[str] = []
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            resp.json.return_value = {"messages": [{"id": "abc"}]}
+        else:
+            resp.json.return_value = {
+                "payload": {
+                    "headers": [{"name": "Subject", "value": "Project update"}]
+                }
+            }
+        return resp
+
+    async def fake_post(self, url, headers=None, json=None):
+        posted.append(url)
+        resp = MagicMock()
+        resp.status_code = 200
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+        patch.object(httpx.AsyncClient, "post", new=fake_post),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        status, subs = await gmail.trash_by_query(
+            "from:alice", account_key="cgm"
+        )
+
+    assert status == "ok"
+    assert subs == ["Project update"]
+    assert any("/messages/abc/trash" in u for u in posted)
+
+
+@pytest.mark.asyncio
+async def test_trash_by_query_ambiguous_returns_subjects() -> None:
+    creds = _make_creds(valid=True)
+    seen_ids = ["m1", "m2"]
+    subj_for = {"m1": "First", "m2": "Second"}
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            resp.json.return_value = {"messages": [{"id": i} for i in seen_ids]}
+        else:
+            mid = url.rsplit("/", 1)[-1]
+            resp.json.return_value = {
+                "payload": {"headers": [{"name": "Subject", "value": subj_for[mid]}]}
+            }
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, subs = await gmail.trash_by_query(
+            "subject:hi", account_key="personal"
+        )
+
+    assert status == "ambiguous"
+    assert subs == ["First", "Second"]
+
+
+@pytest.mark.asyncio
+async def test_trash_by_query_trash_http_error_returns_error() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            resp.json.return_value = {"messages": [{"id": "x"}]}
+        else:
+            resp.json.return_value = {
+                "payload": {"headers": [{"name": "Subject", "value": "x"}]}
+            }
+        return resp
+
+    async def fake_post(self, url, headers=None, json=None):
+        resp = MagicMock()
+        resp.status_code = 403
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+        patch.object(httpx.AsyncClient, "post", new=fake_post),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        status, subs = await gmail.trash_by_query("x", account_key="cgm")
+
+    assert status == "error"
+    assert subs == []
 
 
 # ---- Agent dispatch integration -------------------------------------------

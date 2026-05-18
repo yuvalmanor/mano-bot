@@ -32,12 +32,14 @@ logger = logging.getLogger(__name__)
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 GMAIL_LIST_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 GMAIL_GET_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}"
+GMAIL_TRASH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}/trash"
 TIMEOUT_SECONDS = 10.0
 
 # Full scope set granted to the OAuth tokens after the Task 6c re-OAuth.
 # Older tokens (send-only) still work for send but will fail for read/contacts.
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
 OTHER_CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.other.readonly"
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
@@ -46,6 +48,7 @@ DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 ALL_SCOPES = [
     GMAIL_SEND_SCOPE,
     GMAIL_READ_SCOPE,
+    GMAIL_MODIFY_SCOPE,
     CONTACTS_SCOPE,
     OTHER_CONTACTS_SCOPE,
     CALENDAR_SCOPE,
@@ -227,21 +230,25 @@ async def search_inbox(
     headers = {"Authorization": f"Bearer {token}"}
     max_results = max(1, min(int(max_results or 10), 25))
     scoped_query = _scope_query_to_primary_inbox(query)
+    injected_primary = (
+        "category:primary" in scoped_query
+        and "category:primary" not in (query or "").lower()
+    )
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-            list_resp = await client.get(
-                GMAIL_LIST_URL,
-                headers=headers,
-                params={"q": scoped_query, "maxResults": max_results},
+            ids = await _list_message_ids(
+                client, headers, scoped_query, max_results, account_key
             )
-            if list_resp.status_code >= 400:
-                logger.error("Gmail list HTTP %s", list_resp.status_code)
-                log_action(
-                    "", "gmail_search_inbox", f"account={account_key}", f"http_{list_resp.status_code}"
+            # Workspace / business accounts often don't have Gmail's category
+            # tabs enabled, so category:primary returns nothing. If we injected
+            # the filter ourselves and got zero hits, retry once without it.
+            if not ids and injected_primary:
+                fallback_query = scoped_query.replace("category:primary", "").strip()
+                logger.info("Gmail search empty under Primary; retrying without category filter")
+                ids = await _list_message_ids(
+                    client, headers, fallback_query, max_results, account_key
                 )
-                return ""
-            ids = [m["id"] for m in (list_resp.json().get("messages") or []) if "id" in m]
             messages: list[dict] = []
             for mid in ids:
                 get_resp = await client.get(
@@ -269,3 +276,138 @@ async def search_inbox(
         "ok",
     )
     return summary
+
+
+async def _list_message_ids(
+    client: httpx.AsyncClient,
+    headers: dict,
+    query: str,
+    max_results: int,
+    account_key: str,
+) -> list[str]:
+    """Wrap the messages.list call and return matching message IDs (or [])."""
+    resp = await client.get(
+        GMAIL_LIST_URL,
+        headers=headers,
+        params={"q": query, "maxResults": max_results},
+    )
+    if resp.status_code >= 400:
+        logger.error("Gmail list HTTP %s", resp.status_code)
+        log_action(
+            "", "gmail_search_inbox", f"account={account_key}", f"http_{resp.status_code}"
+        )
+        return []
+    return [m["id"] for m in (resp.json().get("messages") or []) if "id" in m]
+
+
+async def trash_by_query(
+    query: str, account_key: str, max_candidates: int = 5
+) -> tuple[str, list[str]]:
+    """Trash a single message identified by a Gmail query.
+
+    Returns a ``(status, subjects)`` tuple:
+    - ``("ok", [subject])`` — exactly one match, moved to Trash.
+    - ``("not_found", [])`` — no messages matched.
+    - ``("ambiguous", [subj1, subj2, ...])`` — multiple matches; caller
+      should ask the user to narrow down.
+    - ``("error", [])`` — bad account, missing/unreadable token, refresh
+      failure, HTTP error, or timeout.
+
+    Query is scoped to ``in:inbox category:primary`` by the same rule as
+    ``search_inbox`` (with the Workspace fallback). Messages go to Trash —
+    they're recoverable from the Gmail UI for 30 days.
+    """
+    if account_key not in ACCOUNT_KEYS:
+        log_action("", "gmail_trash_email", f"account={account_key}", "bad_account")
+        return ("error", [])
+
+    creds = _load_credentials(account_key)
+    if creds is None:
+        log_action("", "gmail_trash_email", f"account={account_key}", "no_token")
+        return ("error", [])
+
+    token = await _ensure_access_token(creds)
+    if not token:
+        log_action("", "gmail_trash_email", f"account={account_key}", "refresh_failed")
+        return ("error", [])
+
+    headers = {"Authorization": f"Bearer {token}"}
+    max_candidates = max(1, min(int(max_candidates or 5), 10))
+    scoped_query = _scope_query_to_primary_inbox(query)
+    injected_primary = (
+        "category:primary" in scoped_query
+        and "category:primary" not in (query or "").lower()
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            ids = await _list_message_ids(
+                client, headers, scoped_query, max_candidates, account_key
+            )
+            if not ids and injected_primary:
+                fallback_query = scoped_query.replace("category:primary", "").strip()
+                ids = await _list_message_ids(
+                    client, headers, fallback_query, max_candidates, account_key
+                )
+
+            if not ids:
+                log_action(
+                    "", "gmail_trash_email", f"account={account_key} q={query}", "not_found"
+                )
+                return ("not_found", [])
+
+            if len(ids) > 1:
+                # Fetch subjects for disambiguation.
+                subjects: list[str] = []
+                for mid in ids:
+                    get_resp = await client.get(
+                        GMAIL_GET_URL.format(id=mid),
+                        headers=headers,
+                        params={
+                            "format": "metadata",
+                            "metadataHeaders": ["Subject", "From"],
+                        },
+                    )
+                    if get_resp.status_code >= 400:
+                        continue
+                    payload = get_resp.json().get("payload") or {}
+                    h = payload.get("headers") or []
+                    subjects.append(_header(h, "Subject") or "(no subject)")
+                log_action(
+                    "", "gmail_trash_email", f"account={account_key} hits={len(ids)}", "ambiguous"
+                )
+                return ("ambiguous", subjects)
+
+            mid = ids[0]
+            # Grab the subject before trashing so we can echo it back.
+            get_resp = await client.get(
+                GMAIL_GET_URL.format(id=mid),
+                headers=headers,
+                params={"format": "metadata", "metadataHeaders": ["Subject"]},
+            )
+            subject = "(unknown)"
+            if get_resp.status_code < 400:
+                payload = get_resp.json().get("payload") or {}
+                subject = _header(payload.get("headers") or [], "Subject") or "(no subject)"
+
+            trash_resp = await client.post(
+                GMAIL_TRASH_URL.format(id=mid), headers=headers
+            )
+            if trash_resp.status_code >= 400:
+                logger.error("Gmail trash HTTP %s", trash_resp.status_code)
+                log_action(
+                    "",
+                    "gmail_trash_email",
+                    f"account={account_key}",
+                    f"http_{trash_resp.status_code}",
+                )
+                return ("error", [])
+
+            log_action(
+                "", "gmail_trash_email", f"account={account_key}", "ok"
+            )
+            return ("ok", [subject])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Gmail trash error: %s", exc.__class__.__name__)
+        log_action("", "gmail_trash_email", f"account={account_key}", "error")
+        return ("error", [])

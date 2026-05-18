@@ -196,6 +196,32 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "gmail_trash_email",
+        "description": (
+            "Move a single email to Trash (recoverable from Gmail UI for 30 "
+            "days — NOT permanently deleted). Identifies the message by a "
+            "Gmail query (use 'from:', 'subject:', or distinguishing keywords). "
+            "ALWAYS confirm with the user before calling. If the tool returns "
+            "'ambiguous', present the candidate subjects and ask which one — "
+            "do NOT pick on the user's behalf."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail query that uniquely identifies one message (e.g. 'from:angi@email.angi.com subject:\"how can we help\"').",
+                },
+                "account_key": {
+                    "type": "string",
+                    "enum": ["personal", "cgm", "deals"],
+                    "description": "Which account's inbox to trash from.",
+                },
+            },
+            "required": ["query", "account_key"],
+        },
+    },
+    {
         "name": "contacts_lookup",
         "description": (
             "Look up a person in the account's Google contacts (saved contacts + "

@@ -40,6 +40,7 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_comment_idea": "idea_lab",
     "gmail_send_email": "gmail",
     "gmail_search_inbox": "gmail",
+    "gmail_trash_email": "gmail",
     "contacts_lookup": "gmail",
     "calendar_create_event": "calendar",
     "calendar_list_events": "calendar",
@@ -147,6 +148,17 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             max_results=int(args.get("max_results", 10)),
         )
         return text or "(no messages)"
+    if name == "gmail_trash_email":
+        status, subjects = await gmail.trash_by_query(
+            query=args["query"], account_key=args["account_key"]
+        )
+        if status == "ok":
+            return f"ok: trashed '{subjects[0]}'"
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + " | ".join(subjects)
+        return "error"
     if name == "contacts_lookup":
         results = await contacts.lookup_contact(
             query=args["query"], account_key=args["account_key"]
@@ -238,6 +250,7 @@ async def run(user_phone: str, message: str) -> str:
         "notion_archive_task",
         "calendar_create_event",
         "gmail_send_email",
+        "gmail_trash_email",
     }
     invoked_once: set[tuple[str, str]] = set()
 
