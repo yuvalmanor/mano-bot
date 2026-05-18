@@ -338,6 +338,64 @@ async def test_search_inbox_list_http_error_returns_empty() -> None:
     assert out == ""
 
 
+def test_scope_query_empty_gets_primary_inbox() -> None:
+    assert gmail._scope_query_to_primary_inbox("") == "in:inbox category:primary"
+
+
+def test_scope_query_keyword_gets_primary_inbox_prefix() -> None:
+    assert (
+        gmail._scope_query_to_primary_inbox("invoice")
+        == "in:inbox category:primary invoice"
+    )
+
+
+def test_scope_query_respects_explicit_in() -> None:
+    # User explicitly chose another location (e.g. sent) — don't override.
+    out = gmail._scope_query_to_primary_inbox("in:sent")
+    assert "in:inbox" not in out
+    assert "category:primary" in out
+
+
+def test_scope_query_respects_explicit_category() -> None:
+    out = gmail._scope_query_to_primary_inbox("category:promotions")
+    assert "category:primary" not in out
+    assert "in:inbox" in out
+
+
+def test_scope_query_respects_label_filter() -> None:
+    out = gmail._scope_query_to_primary_inbox("label:work")
+    assert "in:inbox" not in out
+
+
+@pytest.mark.asyncio
+async def test_search_inbox_query_scoped_to_primary_in_api_call() -> None:
+    creds = _make_creds(valid=True)
+    captured = {}
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        if url.endswith("/messages"):
+            captured["q"] = params.get("q")
+            resp.json.return_value = {}
+        else:
+            resp.json.return_value = {}
+        return resp
+
+    with (
+        patch("integrations.gmail.config") as cfg,
+        patch(
+            "integrations.gmail.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_CGM = _b64(VALID_TOKEN_INFO)
+        await gmail.search_inbox("", account_key="cgm")
+
+    assert captured["q"] == "in:inbox category:primary"
+
+
 @pytest.mark.asyncio
 async def test_search_inbox_timeout_returns_empty() -> None:
     creds = _make_creds(valid=True)

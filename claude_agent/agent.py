@@ -48,6 +48,17 @@ TOOL_PERMISSIONS: dict[str, str] = {
 
 _HEBREW_RE = re.compile(r"[֐-׿]")
 
+# Em-dash (U+2014) and en-dash (U+2013) are explicitly banned by the system
+# prompt's "no LLM-style punctuation" rule. The model still leaks them ~10%
+# of the time, so this is the hard backstop applied to every outgoing reply.
+_DASH_SUBSTITUTIONS = (("—", "-"), ("–", "-"))
+
+
+def _scrub_llm_punctuation(text: str) -> str:
+    for src, dst in _DASH_SUBSTITUTIONS:
+        text = text.replace(src, dst)
+    return text
+
 
 def _detect_language(text: str) -> str:
     """Return ``"he"`` if the message contains Hebrew chars, else ``"en"``.
@@ -348,6 +359,8 @@ async def run(user_phone: str, message: str) -> str:
 
     if not final_text:
         final_text = HEBREW_ERROR
+
+    final_text = _scrub_llm_punctuation(final_text)
 
     # Persist only the user message and the final assistant text to history.
     history.append({"role": "user", "content": message})

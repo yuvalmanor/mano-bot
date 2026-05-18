@@ -173,8 +173,32 @@ def _format_summary(messages: list[dict]) -> str:
         subject = _header(headers, "Subject") or "(no subject)"
         date = _header(headers, "Date")
         snippet = (msg.get("snippet") or "").strip()
-        lines.append(f"• {subject}\n  {sender} — {date}\n  {snippet}")
+        lines.append(f"• {subject}\n  {sender} - {date}\n  {snippet}")
     return "\n\n".join(lines)
+
+
+def _scope_query_to_primary_inbox(query: str) -> str:
+    """Default Gmail searches to Primary-tab inbox messages.
+
+    Gmail's ``messages.list`` with an empty or unscoped ``q`` returns *all*
+    mail (Inbox + Sent + Spam + every tab including Promotions/Social/Updates).
+    The tool is named ``search_inbox`` and the user's stated intent is the
+    Primary tab specifically — so we inject ``in:inbox category:primary``
+    unless the user (Claude) already constrained location/category in their
+    query.
+    """
+    q = (query or "").strip()
+    lowered = q.lower()
+    additions: list[str] = []
+    # Don't override an explicit user choice of location.
+    if "in:" not in lowered and "label:" not in lowered:
+        additions.append("in:inbox")
+    if "category:" not in lowered:
+        additions.append("category:primary")
+    if not additions:
+        return q
+    prefix = " ".join(additions)
+    return f"{prefix} {q}".strip()
 
 
 async def search_inbox(
@@ -202,13 +226,14 @@ async def search_inbox(
 
     headers = {"Authorization": f"Bearer {token}"}
     max_results = max(1, min(int(max_results or 10), 25))
+    scoped_query = _scope_query_to_primary_inbox(query)
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             list_resp = await client.get(
                 GMAIL_LIST_URL,
                 headers=headers,
-                params={"q": query or "", "maxResults": max_results},
+                params={"q": scoped_query, "maxResults": max_results},
             )
             if list_resp.status_code >= 400:
                 logger.error("Gmail list HTTP %s", list_resp.status_code)

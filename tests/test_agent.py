@@ -6,7 +6,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from claude_agent.agent import HEBREW_ERROR, HEBREW_PERMISSION_DENIED, run
+from claude_agent.agent import (
+    HEBREW_ERROR,
+    HEBREW_PERMISSION_DENIED,
+    _scrub_llm_punctuation,
+    run,
+)
+
+
+def test_scrub_em_dash_replaced():
+    assert _scrub_llm_punctuation("Same limitation — read access") == "Same limitation - read access"
+
+
+def test_scrub_en_dash_replaced():
+    assert _scrub_llm_punctuation("pages 3–7") == "pages 3-7"
+
+
+def test_scrub_leaves_plain_hyphen_alone():
+    assert _scrub_llm_punctuation("a-b-c") == "a-b-c"
 
 
 def _text_block(text: str) -> MagicMock:
