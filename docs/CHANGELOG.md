@@ -6,6 +6,15 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-18] — Task 6d code done: per-user Google account resolution + Eden gmail wiring
+- `users.py`: each user record now carries a `google_tokens` map (`account_key` → config attribute name). Yuval has all three; Eden has `cgm` → `GOOGLE_TOKEN_EDEN_CGM`. New helper `get_google_token_env_name(phone, account_key)`. Eden now has `gmail` in `permissions` (no notion / calendar / drive yet).
+- `config.py` + `.env.example`: optional `GOOGLE_TOKEN_EDEN_CGM` (`os.getenv`, default `""`). Dev environments without it still boot.
+- `integrations/gmail.py`, `integrations/contacts.py`, `integrations/drive.py`: all public funcs (`send_email`, `search_inbox`, `trash_by_query`, `lookup_contact`, `search_files`) accept optional `user_phone`. Token resolution flows through the user-record mapping — Eden's `cgm` → her token, not Yuval's. `user_phone=None` falls back to Yuval's tokens for service-internal callers. Audit lines now carry the actual caller phone (was always `""`).
+- `claude_agent/agent.py`: `_dispatch_tool` receives and threads `user_phone` to gmail / contacts / drive calls.
+- `claude_agent/system_prompt.py`: Users section updated; new "Per-user account routing" section makes the per-caller mapping explicit and bans cross-user fallthrough in prose.
+- 171 tests pass (was 161). New `tests/test_user_account_resolution.py` (10) covers: yuval/eden mapping, unknown-phone, none-phone Yuval fallback, gmail Eden-cgm vs Yuval-cgm token selection, Eden personal-fails-closed, Eden cgm with no EDEN_CGM env var fails closed, contacts/drive same routing. Three existing tests updated to expect the new `user_phone` kwarg on dispatch.
+- OAuth + Railway env var for Eden's account remains TODO — code is ready, awaiting Eden running `scripts/oauth_setup_google.py --manual` for `edeng.cgm@gmail.com` and pasting the base64 token into Railway as `GOOGLE_TOKEN_EDEN_CGM`.
+
 ## [2026-05-18] — Task 6c live-verified end-to-end (✅ Done)
 - Iterated during live verify: (1) read scope widened from cgm-only to all three accounts after the re-OAuth, (2) `search_inbox` now scopes to `in:inbox category:primary` by default with a single-retry fallback when zero hits — fixes Google Workspace accounts (deals@cgm-ventures.com) that don't have category tabs enabled, (3) em-dash / en-dash scrubber on every outgoing reply (hard backstop for the prompt's "no LLM punctuation" rule the model kept violating).
 - Added `gmail_trash_email` (move to Trash via `messages.trash`, recoverable 30 days). Required `gmail.modify` scope and a second OAuth re-run on all three accounts.

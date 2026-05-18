@@ -26,6 +26,7 @@ from google.oauth2.credentials import Credentials
 
 import config
 from security.audit import log_action
+from users import get_google_token_env_name
 
 logger = logging.getLogger(__name__)
 
@@ -58,19 +59,24 @@ ALL_SCOPES = [
 ACCOUNT_KEYS = ("personal", "cgm", "deals")
 
 
-def _token_env_for(account_key: str) -> str | None:
-    if account_key == "personal":
-        return config.GOOGLE_TOKEN_PERSONAL
-    if account_key == "cgm":
-        return config.GOOGLE_TOKEN_CGM
-    if account_key == "deals":
-        return config.GOOGLE_TOKEN_DEALS
-    return None
+def _token_env_for(account_key: str, user_phone: str | None = None) -> str | None:
+    """Resolve the base64 token string for ``account_key`` belonging to ``user_phone``.
+
+    Looks up the config attribute name on the user record (``users.USERS``) and
+    returns the live value from ``config``. ``user_phone=None`` falls back to
+    Yuval's tokens for service-internal callers (preserves pre-Task-6d
+    behavior). Returns None if the user doesn't own this account_key, which
+    callers treat as a missing-token failure.
+    """
+    env_name = get_google_token_env_name(user_phone, account_key)
+    if not env_name:
+        return None
+    return getattr(config, env_name, None)
 
 
-def _load_credentials(account_key: str) -> Credentials | None:
+def _load_credentials(account_key: str, user_phone: str | None = None) -> Credentials | None:
     """Decode base64 token JSON and build a Credentials object. None on failure."""
-    raw = _token_env_for(account_key)
+    raw = _token_env_for(account_key, user_phone)
     if not raw:
         return None
     try:
@@ -113,25 +119,33 @@ def _build_raw_message(to: str, subject: str, body: str) -> str:
     return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
 
 
-async def send_email(to: str, subject: str, body: str, account_key: str) -> bool:
+async def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    account_key: str,
+    user_phone: str | None = None,
+) -> bool:
     """Send an email via Gmail API from the account named by ``account_key``.
 
-    ``account_key`` must be one of ``"personal" | "cgm" | "deals"``. Returns True
-    on success, False on any failure (bad key, missing/unreadable token, refresh
-    failure, HTTP error, timeout). Never raises.
+    ``account_key`` must be one of ``"personal" | "cgm" | "deals"``. The
+    concrete Google account is resolved per-user via ``users.USERS`` — for
+    Eden, ``cgm`` routes to her own Gmail (Task 6d). Returns True on success,
+    False on any failure (bad key, missing/unreadable token, refresh failure,
+    HTTP error, timeout). Never raises.
     """
     if account_key not in ACCOUNT_KEYS:
-        log_action("", "gmail_send_email", f"account={account_key}", "bad_account")
+        log_action(user_phone or "", "gmail_send_email", f"account={account_key}", "bad_account")
         return False
 
-    creds = _load_credentials(account_key)
+    creds = _load_credentials(account_key, user_phone)
     if creds is None:
-        log_action("", "gmail_send_email", f"account={account_key}", "no_token")
+        log_action(user_phone or "", "gmail_send_email", f"account={account_key}", "no_token")
         return False
 
     token = await _ensure_access_token(creds)
     if not token:
-        log_action("", "gmail_send_email", f"account={account_key}", "refresh_failed")
+        log_action(user_phone or "", "gmail_send_email", f"account={account_key}", "refresh_failed")
         return False
 
     raw = _build_raw_message(to=to, subject=subject, body=body)
@@ -146,14 +160,14 @@ async def send_email(to: str, subject: str, body: str, account_key: str) -> bool
         if resp.status_code >= 400:
             logger.error("Gmail send HTTP %s", resp.status_code)
             log_action(
-                "", "gmail_send_email", f"account={account_key}", f"http_{resp.status_code}"
+                user_phone or "", "gmail_send_email", f"account={account_key}", f"http_{resp.status_code}"
             )
             return False
-        log_action("", "gmail_send_email", f"account={account_key}", "ok")
+        log_action(user_phone or "", "gmail_send_email", f"account={account_key}", "ok")
         return True
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Gmail send error: %s", exc.__class__.__name__)
-        log_action("", "gmail_send_email", f"account={account_key}", "error")
+        log_action(user_phone or "", "gmail_send_email", f"account={account_key}", "error")
         return False
 
 
@@ -205,7 +219,10 @@ def _scope_query_to_primary_inbox(query: str) -> str:
 
 
 async def search_inbox(
-    query: str, account_key: str, max_results: int = 10
+    query: str,
+    account_key: str,
+    max_results: int = 10,
+    user_phone: str | None = None,
 ) -> str:
     """Search the account's Gmail inbox and return a human-readable summary.
 
@@ -214,17 +231,17 @@ async def search_inbox(
     Returns an empty string on any failure or zero hits.
     """
     if account_key not in ACCOUNT_KEYS:
-        log_action("", "gmail_search_inbox", f"account={account_key}", "bad_account")
+        log_action(user_phone or "", "gmail_search_inbox", f"account={account_key}", "bad_account")
         return ""
 
-    creds = _load_credentials(account_key)
+    creds = _load_credentials(account_key, user_phone)
     if creds is None:
-        log_action("", "gmail_search_inbox", f"account={account_key}", "no_token")
+        log_action(user_phone or "", "gmail_search_inbox", f"account={account_key}", "no_token")
         return ""
 
     token = await _ensure_access_token(creds)
     if not token:
-        log_action("", "gmail_search_inbox", f"account={account_key}", "refresh_failed")
+        log_action(user_phone or "", "gmail_search_inbox", f"account={account_key}", "refresh_failed")
         return ""
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -238,7 +255,7 @@ async def search_inbox(
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             ids = await _list_message_ids(
-                client, headers, scoped_query, max_results, account_key
+                client, headers, scoped_query, max_results, account_key, user_phone
             )
             # Workspace / business accounts often don't have Gmail's category
             # tabs enabled, so category:primary returns nothing. If we injected
@@ -247,7 +264,7 @@ async def search_inbox(
                 fallback_query = scoped_query.replace("category:primary", "").strip()
                 logger.info("Gmail search empty under Primary; retrying without category filter")
                 ids = await _list_message_ids(
-                    client, headers, fallback_query, max_results, account_key
+                    client, headers, fallback_query, max_results, account_key, user_phone
                 )
             messages: list[dict] = []
             for mid in ids:
@@ -265,12 +282,12 @@ async def search_inbox(
                 messages.append(get_resp.json())
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Gmail search error: %s", exc.__class__.__name__)
-        log_action("", "gmail_search_inbox", f"account={account_key}", "error")
+        log_action(user_phone or "", "gmail_search_inbox", f"account={account_key}", "error")
         return ""
 
     summary = _format_summary(messages)
     log_action(
-        "",
+        user_phone or "",
         "gmail_search_inbox",
         f"account={account_key} hits={len(messages)}",
         "ok",
@@ -284,6 +301,7 @@ async def _list_message_ids(
     query: str,
     max_results: int,
     account_key: str,
+    user_phone: str | None = None,
 ) -> list[str]:
     """Wrap the messages.list call and return matching message IDs (or [])."""
     resp = await client.get(
@@ -294,14 +312,20 @@ async def _list_message_ids(
     if resp.status_code >= 400:
         logger.error("Gmail list HTTP %s", resp.status_code)
         log_action(
-            "", "gmail_search_inbox", f"account={account_key}", f"http_{resp.status_code}"
+            user_phone or "",
+            "gmail_search_inbox",
+            f"account={account_key}",
+            f"http_{resp.status_code}",
         )
         return []
     return [m["id"] for m in (resp.json().get("messages") or []) if "id" in m]
 
 
 async def trash_by_query(
-    query: str, account_key: str, max_candidates: int = 5
+    query: str,
+    account_key: str,
+    max_candidates: int = 5,
+    user_phone: str | None = None,
 ) -> tuple[str, list[str]]:
     """Trash a single message identified by a Gmail query.
 
@@ -318,17 +342,17 @@ async def trash_by_query(
     they're recoverable from the Gmail UI for 30 days.
     """
     if account_key not in ACCOUNT_KEYS:
-        log_action("", "gmail_trash_email", f"account={account_key}", "bad_account")
+        log_action(user_phone or "", "gmail_trash_email", f"account={account_key}", "bad_account")
         return ("error", [])
 
-    creds = _load_credentials(account_key)
+    creds = _load_credentials(account_key, user_phone)
     if creds is None:
-        log_action("", "gmail_trash_email", f"account={account_key}", "no_token")
+        log_action(user_phone or "", "gmail_trash_email", f"account={account_key}", "no_token")
         return ("error", [])
 
     token = await _ensure_access_token(creds)
     if not token:
-        log_action("", "gmail_trash_email", f"account={account_key}", "refresh_failed")
+        log_action(user_phone or "", "gmail_trash_email", f"account={account_key}", "refresh_failed")
         return ("error", [])
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -342,17 +366,20 @@ async def trash_by_query(
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             ids = await _list_message_ids(
-                client, headers, scoped_query, max_candidates, account_key
+                client, headers, scoped_query, max_candidates, account_key, user_phone
             )
             if not ids and injected_primary:
                 fallback_query = scoped_query.replace("category:primary", "").strip()
                 ids = await _list_message_ids(
-                    client, headers, fallback_query, max_candidates, account_key
+                    client, headers, fallback_query, max_candidates, account_key, user_phone
                 )
 
             if not ids:
                 log_action(
-                    "", "gmail_trash_email", f"account={account_key} q={query}", "not_found"
+                    user_phone or "",
+                    "gmail_trash_email",
+                    f"account={account_key} q={query}",
+                    "not_found",
                 )
                 return ("not_found", [])
 
@@ -374,7 +401,10 @@ async def trash_by_query(
                     h = payload.get("headers") or []
                     subjects.append(_header(h, "Subject") or "(no subject)")
                 log_action(
-                    "", "gmail_trash_email", f"account={account_key} hits={len(ids)}", "ambiguous"
+                    user_phone or "",
+                    "gmail_trash_email",
+                    f"account={account_key} hits={len(ids)}",
+                    "ambiguous",
                 )
                 return ("ambiguous", subjects)
 
@@ -396,7 +426,7 @@ async def trash_by_query(
             if trash_resp.status_code >= 400:
                 logger.error("Gmail trash HTTP %s", trash_resp.status_code)
                 log_action(
-                    "",
+                    user_phone or "",
                     "gmail_trash_email",
                     f"account={account_key}",
                     f"http_{trash_resp.status_code}",
@@ -404,10 +434,10 @@ async def trash_by_query(
                 return ("error", [])
 
             log_action(
-                "", "gmail_trash_email", f"account={account_key}", "ok"
+                user_phone or "", "gmail_trash_email", f"account={account_key}", "ok"
             )
             return ("ok", [subject])
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Gmail trash error: %s", exc.__class__.__name__)
-        log_action("", "gmail_trash_email", f"account={account_key}", "error")
+        log_action(user_phone or "", "gmail_trash_email", f"account={account_key}", "error")
         return ("error", [])

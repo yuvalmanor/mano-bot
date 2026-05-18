@@ -59,6 +59,9 @@ GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_TOKEN_PERSONAL = os.environ["GOOGLE_TOKEN_PERSONAL"]
 GOOGLE_TOKEN_CGM = os.environ["GOOGLE_TOKEN_CGM"]
 GOOGLE_TOKEN_DEALS = os.environ["GOOGLE_TOKEN_DEALS"]
+# Eden's personal cgm account (Task 6d). Optional: dev/CI environments can run
+# without it; missing token resolves to no_token at the integration layer.
+GOOGLE_TOKEN_EDEN_CGM = os.getenv("GOOGLE_TOKEN_EDEN_CGM", "")
 
 ADMIN_TOKEN = os.environ["ADMIN_TOKEN"]
 BOT_ENABLED = os.getenv("BOT_ENABLED", "true").strip().lower() == "true"

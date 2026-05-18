@@ -700,16 +700,23 @@ async def test_agent_dispatches_gmail_tool_for_authorized_user() -> None:
         reply = await run(phone, "תשלח מייל ל-a@b.com")
         assert reply == "נשלח"
         mock_send.assert_awaited_once_with(
-            to="a@b.com", subject="Hi", body="hey", account_key="personal"
+            to="a@b.com",
+            subject="Hi",
+            body="hey",
+            account_key="personal",
+            user_phone=phone,
         )
 
 
 @pytest.mark.asyncio
-async def test_agent_denies_gmail_tool_for_eden() -> None:
+async def test_agent_dispatches_gmail_for_eden_with_her_phone() -> None:
+    """Eden has gmail permission (Task 6d). The agent must pass her phone
+    through to send_email so the integration resolves cgm → her own account.
+    """
     from claude_agent.agent import CONVERSATION_HISTORY, run
 
     CONVERSATION_HISTORY.clear()
-    phone = "+972546900908"  # Eden — no 'gmail' permission
+    phone = "+972546900908"  # Eden
 
     def text_block(t):
         b = MagicMock()
@@ -751,15 +758,21 @@ async def test_agent_denies_gmail_tool_for_eden() -> None:
                                 "to": "a@b.com",
                                 "subject": "x",
                                 "body": "x",
-                                "account_key": "personal",
+                                "account_key": "cgm",
                             },
                         )
                     ],
                 ),
-                resp("end_turn", [text_block("אין הרשאה")]),
+                resp("end_turn", [text_block("נשלח")]),
             ]
         )
 
-        reply = await run(phone, "תשלח מייל")
-        assert reply == "אין הרשאה"
-        mock_send.assert_not_awaited()
+        reply = await run(phone, "תשלח מייל מ-cgm")
+        assert reply == "נשלח"
+        mock_send.assert_awaited_once_with(
+            to="a@b.com",
+            subject="x",
+            body="x",
+            account_key="cgm",
+            user_phone=phone,
+        )

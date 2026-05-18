@@ -84,8 +84,12 @@ def _language_directive(lang: str) -> str:
     )
 
 
-async def _dispatch_tool(name: str, args: dict) -> str:
-    """Run a tool and return a string result for the tool_result block."""
+async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -> str:
+    """Run a tool and return a string result for the tool_result block.
+
+    ``user_phone`` is plumbed through to the Google integrations so per-user
+    account resolution can pick the right token (Eden's ``cgm`` vs Yuval's).
+    """
     if name == "notion_add_task":
         return await notion.add_task(
             title=args["title"],
@@ -139,6 +143,7 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             subject=args["subject"],
             body=args["body"],
             account_key=args["account_key"],
+            user_phone=user_phone,
         )
         return "ok" if ok else "error"
     if name == "gmail_search_inbox":
@@ -146,11 +151,14 @@ async def _dispatch_tool(name: str, args: dict) -> str:
             query=args.get("query", ""),
             account_key=args["account_key"],
             max_results=int(args.get("max_results", 10)),
+            user_phone=user_phone,
         )
         return text or "(no messages)"
     if name == "gmail_trash_email":
         status, subjects = await gmail.trash_by_query(
-            query=args["query"], account_key=args["account_key"]
+            query=args["query"],
+            account_key=args["account_key"],
+            user_phone=user_phone,
         )
         if status == "ok":
             return f"ok: trashed '{subjects[0]}'"
@@ -161,7 +169,9 @@ async def _dispatch_tool(name: str, args: dict) -> str:
         return "error"
     if name == "contacts_lookup":
         results = await contacts.lookup_contact(
-            query=args["query"], account_key=args["account_key"]
+            query=args["query"],
+            account_key=args["account_key"],
+            user_phone=user_phone,
         )
         if not results:
             return "no_match"
@@ -180,7 +190,9 @@ async def _dispatch_tool(name: str, args: dict) -> str:
         return text or "(no events)"
     if name == "drive_search_files":
         text = await drive.search_files(
-            query=args["query"], account_key=args["account_key"]
+            query=args["query"],
+            account_key=args["account_key"],
+            user_phone=user_phone,
         )
         return text or "(no files)"
     return f"unknown tool: {name}"
@@ -334,7 +346,7 @@ async def run(user_phone: str, message: str) -> str:
 
                 log_action(user_phone, tool_name, "", "invoked")
                 try:
-                    result = await _dispatch_tool(tool_name, tool_args)
+                    result = await _dispatch_tool(tool_name, tool_args, user_phone)
                 except Exception as exc:
                     logger.error(
                         "Tool %s raised %s", tool_name, exc.__class__.__name__

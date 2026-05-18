@@ -68,21 +68,24 @@ def _dedupe(entries: list[dict]) -> list[dict]:
     return out
 
 
-async def lookup_contact(query: str, account_key: str) -> list[dict]:
+async def lookup_contact(
+    query: str, account_key: str, user_phone: str | None = None
+) -> list[dict]:
     """Search the named account's contacts for ``query``.
 
     ``account_key`` currently accepts ``"cgm"`` only (per spec: contacts lookup
-    is CGM-scoped). Returns a list of ``{"name", "email"}`` dicts, deduped by
-    email. Empty list on any failure.
+    is CGM-scoped). The concrete Google account is resolved per-user via
+    ``users.USERS`` — Eden's ``cgm`` → her account (Task 6d). Returns a list of
+    ``{"name", "email"}`` dicts, deduped by email. Empty list on any failure.
     """
-    creds = _load_credentials(account_key)
+    creds = _load_credentials(account_key, user_phone)
     if creds is None:
-        log_action("", "contacts_lookup", f"account={account_key}", "no_token")
+        log_action(user_phone or "", "contacts_lookup", f"account={account_key}", "no_token")
         return []
 
     token = await _ensure_access_token(creds)
     if not token:
-        log_action("", "contacts_lookup", f"account={account_key}", "refresh_failed")
+        log_action(user_phone or "", "contacts_lookup", f"account={account_key}", "refresh_failed")
         return []
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -110,7 +113,7 @@ async def lookup_contact(query: str, account_key: str) -> list[dict]:
             )
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("contacts lookup error: %s", exc.__class__.__name__)
-        log_action("", "contacts_lookup", f"account={account_key}", "error")
+        log_action(user_phone or "", "contacts_lookup", f"account={account_key}", "error")
         return []
 
     for resp in (saved_resp, other_resp):
@@ -128,7 +131,7 @@ async def lookup_contact(query: str, account_key: str) -> list[dict]:
 
     deduped = _dedupe(merged)
     log_action(
-        "",
+        user_phone or "",
         "contacts_lookup",
         f"account={account_key} hits={len(deduped)}",
         "ok",

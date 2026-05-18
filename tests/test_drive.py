@@ -327,7 +327,9 @@ async def test_agent_dispatches_drive_search_for_yuval() -> None:
 
         reply = await run(phone, "תחפש לי קובץ Q1 ב-deals")
         assert reply == "מצאתי"
-        mock_search.assert_awaited_once_with(query="Q1", account_key="deals")
+        mock_search.assert_awaited_once_with(
+            query="Q1", account_key="deals", user_phone=phone
+        )
 
 
 @pytest.mark.asyncio

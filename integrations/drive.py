@@ -22,6 +22,7 @@ from google.oauth2.credentials import Credentials
 
 import config
 from security.audit import log_action
+from users import get_google_token_env_name
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +34,20 @@ MAX_RESULTS = 20
 ACCOUNT_KEYS = ("personal", "cgm", "deals")
 
 
-def _token_env_for(account_key: str) -> str | None:
-    if account_key == "personal":
-        return config.GOOGLE_TOKEN_PERSONAL
-    if account_key == "cgm":
-        return config.GOOGLE_TOKEN_CGM
-    if account_key == "deals":
-        return config.GOOGLE_TOKEN_DEALS
-    return None
+def _token_env_for(account_key: str, user_phone: str | None = None) -> str | None:
+    """Resolve token via the per-user mapping in ``users.USERS`` (Task 6d).
+
+    ``user_phone=None`` falls back to Yuval's tokens for callers that don't
+    plumb a phone through.
+    """
+    env_name = get_google_token_env_name(user_phone, account_key)
+    if not env_name:
+        return None
+    return getattr(config, env_name, None)
 
 
-def _load_credentials(account_key: str) -> Credentials | None:
-    raw = _token_env_for(account_key)
+def _load_credentials(account_key: str, user_phone: str | None = None) -> Credentials | None:
+    raw = _token_env_for(account_key, user_phone)
     if not raw:
         return None
     try:
@@ -96,24 +99,28 @@ def _format_results(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def search_files(query: str, account_key: str) -> str:
+async def search_files(
+    query: str, account_key: str, user_phone: str | None = None
+) -> str:
     """Search Drive files by name substring for the named account.
 
-    Returns a Hebrew-friendly newline-joined list of "name — link" entries, or
-    empty string on any failure or if no files match. Never raises.
+    The concrete Google account is resolved per-user via ``users.USERS`` —
+    Eden's ``cgm`` → her account (Task 6d). Returns a Hebrew-friendly
+    newline-joined list of "name — link" entries, or empty string on any
+    failure or if no files match. Never raises.
     """
     if account_key not in ACCOUNT_KEYS:
-        log_action("", "drive_search_files", f"account={account_key}", "bad_account")
+        log_action(user_phone or "", "drive_search_files", f"account={account_key}", "bad_account")
         return ""
 
-    creds = _load_credentials(account_key)
+    creds = _load_credentials(account_key, user_phone)
     if creds is None:
-        log_action("", "drive_search_files", f"account={account_key}", "no_token")
+        log_action(user_phone or "", "drive_search_files", f"account={account_key}", "no_token")
         return ""
 
     token = await _ensure_access_token(creds)
     if not token:
-        log_action("", "drive_search_files", f"account={account_key}", "refresh_failed")
+        log_action(user_phone or "", "drive_search_files", f"account={account_key}", "refresh_failed")
         return ""
 
     safe = _escape_query(query)
@@ -130,13 +137,16 @@ async def search_files(query: str, account_key: str) -> str:
         if resp.status_code >= 400:
             logger.error("Drive search HTTP %s", resp.status_code)
             log_action(
-                "", "drive_search_files", f"account={account_key}", f"http_{resp.status_code}"
+                user_phone or "",
+                "drive_search_files",
+                f"account={account_key}",
+                f"http_{resp.status_code}",
             )
             return ""
         data = resp.json()
-        log_action("", "drive_search_files", f"account={account_key}", "ok")
+        log_action(user_phone or "", "drive_search_files", f"account={account_key}", "ok")
         return _format_results(data.get("files", []))
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Drive search error: %s", exc.__class__.__name__)
-        log_action("", "drive_search_files", f"account={account_key}", "error")
+        log_action(user_phone or "", "drive_search_files", f"account={account_key}", "error")
         return ""
