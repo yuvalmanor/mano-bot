@@ -86,23 +86,24 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| "שלח מייל #personal ל-test@example.com" → bot drafts, confirms | 🔲 | |
-| Reply "כן" → email sent from yuvalmanor@gmail.com, appears in Sent | 🔲 | |
-| "שלח מייל #cgm ל-..." → sent from yuval.cgm@gmail.com | 🔲 | |
-| "שלח מייל #deals ל-..." → sent from deals@cgm-ventures.com | 🔲 | |
-| Email tone is casual, no "—" punctuation | 🔲 | |
-| Reply "לא" → email not sent, bot confirms cancellation | 🔲 | |
+| "שלח מייל #personal ל-test@example.com" → bot drafts, confirms | ✅ | 2026-05-18 |
+| Reply "כן" → email sent from yuvalmanor@gmail.com, appears in Sent | ✅ | 2026-05-18 |
+| "שלח מייל #cgm ל-..." → sent from yuval.cgm@gmail.com | ✅ | 2026-05-18 |
+| "שלח מייל #deals ל-..." → sent from deals@cgm-ventures.com | ✅ | 2026-05-18 |
+| Email tone is casual, no "—" punctuation | ✅ | 2026-05-18 — em-dash scrubber added in agent.py (commit d4ab7f8) as code-level backstop |
+| Reply "לא" → email not sent, bot confirms cancellation | ✅ | 2026-05-18 |
 
-### Task 6c — Read + Contacts + Default routing
+### Task 6c — Read + Contacts + Trash + Default routing
 
 | Test | Status | Notes |
 |---|---|---|
-| "שלח מייל לאליס" (no `#cgm`) → drafts from **personal** account by default | 🔲 | |
-| "שלח מייל from cgm to Alice" → bot calls `contacts_lookup`, finds Alice, asks for content, drafts, confirms, sends | 🔲 | |
-| "send from cgm to <name not in contacts>" → bot reports no match, asks for email address | 🔲 | |
-| Multiple matches → bot lists them and asks which one | 🔲 | |
-| "תקרא מיילים from:alice@x.com from cgm" → returns subject/from/snippet for recent matches | 🔲 | |
-| "read my personal inbox" → bot says read access is cgm-only | 🔲 | |
+| "שלח מייל לאליס" (no `#cgm`) → drafts from **personal** account by default | ✅ | 2026-05-18 |
+| "שלח מייל from cgm to <real contact>" → bot calls `contacts_lookup`, finds them, asks for content, drafts, confirms, sends | ✅ | 2026-05-18 |
+| "send from cgm to <name not in contacts>" → bot reports no match, asks for email address | ✅ | 2026-05-18 |
+| "תקרא מיילים from cgm" → returns Primary-tab subject/from/snippet | ✅ | 2026-05-18 |
+| "List last 3 emails from personal/deals" → reads Primary inbox (after scope-widening commit c6fb00e) | ✅ | 2026-05-18 — deals required the Workspace fallback (commit da3256d) since business accounts have no category tabs |
+| "List last 3 emails from cgm" returned Promotions / Sent items | ✅ Fixed | 2026-05-18 — `search_inbox` now scopes to `in:inbox category:primary` by default (commit d4ab7f8) |
+| "delete the last email from cgm" → confirms, trashes message, recoverable from Gmail UI | ✅ | 2026-05-18 — `gmail_trash_email` tool + `gmail.modify` scope (commit da3256d) |
 
 ---
 

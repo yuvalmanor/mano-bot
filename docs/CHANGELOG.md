@@ -6,6 +6,12 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-18] — Task 6c live-verified end-to-end (✅ Done)
+- Iterated during live verify: (1) read scope widened from cgm-only to all three accounts after the re-OAuth, (2) `search_inbox` now scopes to `in:inbox category:primary` by default with a single-retry fallback when zero hits — fixes Google Workspace accounts (deals@cgm-ventures.com) that don't have category tabs enabled, (3) em-dash / en-dash scrubber on every outgoing reply (hard backstop for the prompt's "no LLM punctuation" rule the model kept violating).
+- Added `gmail_trash_email` (move to Trash via `messages.trash`, recoverable 30 days). Required `gmail.modify` scope and a second OAuth re-run on all three accounts.
+- Final tool surface for Gmail: `gmail_send_email`, `gmail_search_inbox`, `gmail_trash_email`, `contacts_lookup`.
+- 161 tests pass (was 136 at start of 6c).
+
 ## [2026-05-17] — Task 6c: Gmail read + contacts lookup + default-personal routing (code done)
 - `integrations/contacts.py` (new): People API lookup against both `searchContacts` (saved) and `otherContacts:search` (anyone you've emailed). Returns deduped `{name, email}` list. 10s timeout, never raises.
 - `integrations/gmail.py`: new `search_inbox(query, account_key, max_results)` using Gmail `messages.list` + `messages.get` (format=metadata). Expanded `ALL_SCOPES` constant — credentials now load with gmail.send + gmail.readonly + contacts.readonly + contacts.other.readonly + calendar.events + drive.readonly.
