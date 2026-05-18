@@ -14,10 +14,11 @@ Two flow modes:
 Usage:
     python scripts/oauth_setup_google.py <account_key> [--manual]
 
-<account_key> is one of: personal | cgm | deals
+<account_key> is one of: personal | cgm | deals | eden_cgm
   personal → yuvalmanor@gmail.com   → paste output into GOOGLE_TOKEN_PERSONAL
   cgm      → yuval.cgm@gmail.com    → paste output into GOOGLE_TOKEN_CGM
   deals    → deals@cgm-ventures.com → paste output into GOOGLE_TOKEN_DEALS
+  eden_cgm → edeng.cgm@gmail.com    → paste output into GOOGLE_TOKEN_EDEN_CGM
 
 Prereqs:
   - GOOGLE_CREDENTIALS_JSON is set in your local .env (the static OAuth client
@@ -55,6 +56,7 @@ ACCOUNT_HINTS = {
     "personal": "yuvalmanor@gmail.com",
     "cgm": "yuval.cgm@gmail.com",
     "deals": "deals@cgm-ventures.com",
+    "eden_cgm": "edeng.cgm@gmail.com",
 }
 
 # Any fixed localhost port works for the manual flow — nothing listens there,
