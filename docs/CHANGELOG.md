@@ -6,6 +6,11 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-19] — Task 7b iteration #3: multi-turn context rule (stop re-verifying prior turns)
+- Observed live: after a successful cancel ("בוטל ✅"), the next user message ("set a reminder to call X tomorrow at 16") triggered Mano to re-call `calendar_cancel_event` for the dentist and narrate "didn't find it — maybe already cancelled" before handling the new request. Wasted tool call, extra latency, confusing UX.
+- `claude_agent/system_prompt.py`: new "Multi-turn context" section. Rules: (1) trust prior assistant confirmations - never re-verify with a tool call; (2) treat each user message as a standalone request unless the wording explicitly references the previous turn (pronouns, "also", "the same one"); (3) never narrate a previous turn's result back in a new turn. Placed just before "Avoiding sycophancy" since both target conversation-level behavior.
+- Prompt-only change. 186 tests still pass.
+
 ## [2026-05-19] — Task 7b iteration #2: calendar cancel + default 10-min alert
 - New `integrations/gcalendar.cancel_event_by_query(query, days_window=60)` — searches upcoming events with the Calendar API's `q=` free-text filter, deletes on a unique match, returns `(status, summaries)` mirroring the `gmail_trash_email` ambiguous/not_found pattern. Deletion is permanent (no Trash equivalent on Calendar).
 - New Claude tool `calendar_cancel_event`. Wired through `TOOL_PERMISSIONS`, `SINGLE_CALL_TOOLS` (with `query` added to the primary-key fallback so the duplicate guard still works), and the agent dispatch.
