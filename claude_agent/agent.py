@@ -227,8 +227,7 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
             alert_minutes=int(alert_minutes),
         )
         if result.get("ok"):
-            link = result.get("html_link") or ""
-            return f"ok: event created. link={link}" if link else "ok"
+            return "ok"
         reason = result.get("reason") or "unknown"
         return (
             f"error: calendar write FAILED (reason={reason}). The event was "

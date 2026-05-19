@@ -6,6 +6,13 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-19] — Task 7b iteration #4: drop event link from reply
+- User feedback: do not include the Calendar event URL in the WhatsApp reply.
+- `claude_agent/agent.py` dispatch: `calendar_create_event` success now returns plain `"ok"` instead of `"ok: event created. link=<htmlLink>"`. The model never sees the link, so it can't surface it.
+- `claude_agent/system_prompt.py`: the Calendar "Creating events" rule now says reply with a short confirmation only and explicitly forbids the link/URL.
+- `integrations/gcalendar.create_event` still captures the htmlLink in its dict return — unused by the dispatch, but kept for future use (e.g. audit/debug).
+- Tests still pass (186/186) - no test was asserting link content in the tool_result.
+
 ## [2026-05-19] — Task 7b iteration #3: multi-turn context rule (stop re-verifying prior turns)
 - Observed live: after a successful cancel ("בוטל ✅"), the next user message ("set a reminder to call X tomorrow at 16") triggered Mano to re-call `calendar_cancel_event` for the dentist and narrate "didn't find it — maybe already cancelled" before handling the new request. Wasted tool call, extra latency, confusing UX.
 - `claude_agent/system_prompt.py`: new "Multi-turn context" section. Rules: (1) trust prior assistant confirmations - never re-verify with a tool call; (2) treat each user message as a standalone request unless the wording explicitly references the previous turn (pronouns, "also", "the same one"); (3) never narrate a previous turn's result back in a new turn. Placed just before "Avoiding sycophancy" since both target conversation-level behavior.

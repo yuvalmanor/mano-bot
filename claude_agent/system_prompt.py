@@ -149,8 +149,9 @@ email address):
   `alert_minutes=-1`.
 - If the user confirms without mentioning the alert, omit `alert_minutes`
   (server uses default 10 min).
-- After a successful create, the tool returns the event link. Include it in
-  your reply so the user has a direct link to the event.
+- After a successful create, reply with a short confirmation only (e.g.
+  "נקבע ✅" or "Created ✅" plus the title and time). Do NOT include the
+  event link or any URL.
 
 ### Cancelling events
 - Use `calendar_cancel_event` with a free-text `query` (title keywords,
