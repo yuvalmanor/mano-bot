@@ -251,10 +251,13 @@ TOOLS: list[dict] = [
         "name": "calendar_create_event",
         "description": (
             "Create an event on Yuval's Google Calendar. Always confirm title, "
-            "start, end, and description with the user before calling. Times "
-            "must be RFC3339 strings (e.g. 2026-05-20T14:00:00+03:00). When "
-            "the user does not specify a duration, OMIT end_datetime — the "
-            "server defaults to start + 1 hour."
+            "start, end, alert, and description with the user before calling. "
+            "Times must be RFC3339 strings (e.g. 2026-05-20T14:00:00+03:00). "
+            "When the user does not specify a duration, OMIT end_datetime - "
+            "the server defaults to start + 1 hour. When the user does not "
+            "specify an alert, OMIT alert_minutes - the server defaults to a "
+            "popup 10 minutes before. Pass alert_minutes=-1 ONLY when the user "
+            "explicitly says no alert."
         ),
         "input_schema": {
             "type": "object",
@@ -273,8 +276,47 @@ TOOLS: list[dict] = [
                     ),
                 },
                 "description": {"type": "string"},
+                "alert_minutes": {
+                    "type": "integer",
+                    "description": (
+                        "Minutes before the event for a popup reminder. Default "
+                        "is 10 when omitted. Pass -1 for no reminder. Any "
+                        "non-negative int sets the reminder to that many "
+                        "minutes before (0 = at event start time)."
+                    ),
+                },
             },
             "required": ["title", "start_datetime"],
+        },
+    },
+    {
+        "name": "calendar_cancel_event",
+        "description": (
+            "Cancel (delete) a calendar event on Yuval's primary calendar by "
+            "free-text query. Searches upcoming events in the next days_window "
+            "days (default 60) - matches against title, description, location, "
+            "and attendees. ALWAYS confirm with the user before calling: "
+            "summarize the candidate event and ask לאשר?/confirm?. If the tool "
+            "returns ambiguous, present the list and ask which one. If "
+            "not_found, tell the user no matching event was found. Deletion "
+            "is permanent."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Free-text search (title keywords, attendee name, etc.). "
+                        "Be specific enough to match a single event."
+                    ),
+                },
+                "days_window": {
+                    "type": "integer",
+                    "description": "Look-ahead window in days (default 60).",
+                },
+            },
+            "required": ["query"],
         },
     },
     {

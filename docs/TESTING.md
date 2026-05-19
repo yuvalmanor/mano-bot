@@ -115,6 +115,15 @@ git add . && git commit -m "your message" && git push
 | Reply "כן" → event appears in Google Calendar | 🔲 | |
 | "מה יש לי השבוע" → upcoming 7-day events listed | 🔲 | |
 | Ambiguous time → bot asks for clarification before confirming | 🔲 | |
+| Confirmation message includes alert prompt (default 10 min before) | 🔲 | New 2026-05-19 — default alert |
+| "תקבע פגישה ... עם התראה 30 דקות" → event created with 30-min popup | 🔲 | New 2026-05-19 — custom alert |
+| "תקבע פגישה ... בלי התראה" → event created with no reminders | 🔲 | New 2026-05-19 — alert_minutes=-1 |
+| "תקבע פגישה מחר ב-10" → bot resolves "תמחר" to actual tomorrow (date directive) | 🔲 | New 2026-05-19 — regression for the phantom-event bug |
+| After create, bot's reply includes the event link from htmlLink | 🔲 | New 2026-05-19 — link visibility |
+| "תבטל את הפגישה עם רועי" → bot confirms candidate event, asks לאשר? | 🔲 | New 2026-05-19 — cancel_event_by_query |
+| Reply "כן" after cancel confirmation → event removed from Calendar | 🔲 | New 2026-05-19 — cancel happy path |
+| Cancel query with multiple matches → bot presents list, asks which one | 🔲 | New 2026-05-19 — ambiguous |
+| Cancel query with no matches → bot reports not found | 🔲 | New 2026-05-19 — not_found |
 
 ---
 

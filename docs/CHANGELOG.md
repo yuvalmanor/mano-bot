@@ -6,6 +6,15 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-19] — Task 7b iteration #2: calendar cancel + default 10-min alert
+- New `integrations/gcalendar.cancel_event_by_query(query, days_window=60)` — searches upcoming events with the Calendar API's `q=` free-text filter, deletes on a unique match, returns `(status, summaries)` mirroring the `gmail_trash_email` ambiguous/not_found pattern. Deletion is permanent (no Trash equivalent on Calendar).
+- New Claude tool `calendar_cancel_event`. Wired through `TOOL_PERMISSIONS`, `SINGLE_CALL_TOOLS` (with `query` added to the primary-key fallback so the duplicate guard still works), and the agent dispatch.
+- `integrations/gcalendar.create_event`: new `alert_minutes` parameter (default 10). Builds `reminders.overrides=[{popup, minutes}]`. Sentinel `-1` → `useDefault=False, overrides=[]` (explicit no-alert).
+- `claude_agent/tools.py`: `calendar_create_event` schema gains optional `alert_minutes` with default-10 / -1=no-alert semantics in the description.
+- `claude_agent/agent.py` dispatch: when Claude omits `alert_minutes`, dispatch passes 10. When it passes -1, forward as-is.
+- `claude_agent/system_prompt.py`: Calendar section restructured into "Creating events" + "Cancelling events". Creating rule: ALWAYS ask about the alert in the confirmation message (default 10 min); use the per-turn date directive for relative dates; include the htmlLink in the reply after successful create. Cancelling rule: always confirm with title+start time; handle ambiguous/not_found explicitly; deletion is permanent (no 30-day recovery like Gmail trash).
+- 186 tests pass (was 175). 11 new: 3 alert paths (default-10, no-alert, custom), 5 cancel paths (not_found, ambiguous, single match deletes, search HTTP error, delete HTTP error), 3 agent-dispatch (cancel happy path, alert_minutes default 10, alert_minutes -1 passthrough).
+
 ## [2026-05-19] — Task 7b iteration: date awareness + default 1h + calendar error surfacing
 - Root cause of last night's "phantom event" (Calendar API returned 200 OK but Yuval couldn't find the event): the model had no anchor for "today" and resolved "tomorrow" against an imagined date from its training-window past. Event was created — just on the wrong day.
 - `claude_agent/agent.py`: new `_date_directive()` injects "Today is <weekday>, <YYYY-MM-DD> in Israel local time (Asia/Jerusalem)" into every user turn, alongside the existing language directive. Code-level anchor so relative dates ("tomorrow", "next Sunday", "this week") resolve against actual today, not the model's prior.

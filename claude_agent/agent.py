@@ -46,6 +46,7 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "contacts_lookup": "gmail",
     "calendar_create_event": "calendar",
     "calendar_list_events": "calendar",
+    "calendar_cancel_event": "calendar",
     "drive_search_files": "drive",
 }
 
@@ -215,11 +216,15 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
                     "Tell the user the calendar write failed and ask them to "
                     "rephrase the time."
                 )
+        alert_minutes = args.get("alert_minutes")
+        if alert_minutes is None:
+            alert_minutes = 10
         result = await gcalendar.create_event(
             title=args["title"],
             start_datetime=start,
             end_datetime=end,
             description=args.get("description"),
+            alert_minutes=int(alert_minutes),
         )
         if result.get("ok"):
             link = result.get("html_link") or ""
@@ -233,6 +238,18 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
     if name == "calendar_list_events":
         text = await gcalendar.list_upcoming_events(days=int(args.get("days", 7)))
         return text or "(no events)"
+    if name == "calendar_cancel_event":
+        status, summaries = await gcalendar.cancel_event_by_query(
+            query=args["query"],
+            days_window=int(args.get("days_window", 60)),
+        )
+        if status == "ok":
+            return f"ok: cancelled '{summaries[0]}'"
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + " | ".join(summaries)
+        return "error"
     if name == "drive_search_files":
         text = await drive.search_files(
             query=args["query"],
@@ -309,6 +326,7 @@ async def run(user_phone: str, message: str) -> str:
         "notion_archive_idea",
         "notion_archive_task",
         "calendar_create_event",
+        "calendar_cancel_event",
         "gmail_send_email",
         "gmail_trash_email",
     }
@@ -369,6 +387,7 @@ async def run(user_phone: str, message: str) -> str:
                     tool_args.get("title")
                     or tool_args.get("idea_title")
                     or tool_args.get("subject")
+                    or tool_args.get("query")
                     or ""
                 ).strip().lower()
                 guard_key = (tool_name, primary_key)

@@ -73,6 +73,7 @@ async def create_event(
     start_datetime: str,
     end_datetime: str,
     description: str | None = None,
+    alert_minutes: int = 10,
 ) -> dict:
     """Create an event on the primary calendar.
 
@@ -83,6 +84,11 @@ async def create_event(
       - ``reason``: str — short failure reason for the caller to surface
         (``no_token`` / ``refresh_failed`` / ``http_<code>`` / ``error``).
         Empty on success.
+
+    ``alert_minutes`` semantics:
+      - ``10`` (default) → popup reminder 10 minutes before
+      - any non-negative int → popup that many minutes before
+      - ``-1`` → no reminder (overrides=[], useDefault=false)
     Never raises.
     """
     creds = _load_credentials()
@@ -102,6 +108,14 @@ async def create_event(
     }
     if description:
         body["description"] = description
+
+    if alert_minutes == -1:
+        body["reminders"] = {"useDefault": False, "overrides": []}
+    elif alert_minutes >= 0:
+        body["reminders"] = {
+            "useDefault": False,
+            "overrides": [{"method": "popup", "minutes": alert_minutes}],
+        }
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -183,3 +197,75 @@ async def list_upcoming_events(days: int = 7) -> str:
         logger.error("Calendar list error: %s", exc.__class__.__name__)
         log_action("", "calendar_list_events", "", "error")
         return ""
+
+
+async def cancel_event_by_query(
+    query: str, days_window: int = 60
+) -> tuple[str, list[str]]:
+    """Cancel (delete) a single calendar event matched by free-text ``query``.
+
+    Searches events on the primary calendar within the next ``days_window``
+    days using the Calendar API's ``q=`` free-text filter (matches title,
+    description, location, attendees). Mirrors the find-then-act / ambiguous
+    pattern used by :func:`integrations.gmail.trash_by_query`.
+
+    Returns a ``(status, summaries)`` tuple where status is one of:
+      - ``"ok"``: exactly one match, deleted; ``summaries`` is ``[<title>]``
+      - ``"not_found"``: zero matches; ``summaries`` is ``[]``
+      - ``"ambiguous"``: 2+ matches; ``summaries`` lists all candidate titles
+      - ``"error"``: auth/HTTP/timeout failure; ``summaries`` is ``[]``
+    Never raises.
+    """
+    creds = _load_credentials()
+    if creds is None:
+        log_action("", "calendar_cancel_event", "", "no_token")
+        return "error", []
+    token = await _ensure_access_token(creds)
+    if not token:
+        log_action("", "calendar_cancel_event", "", "refresh_failed")
+        return "error", []
+
+    now = datetime.now(timezone.utc)
+    time_min = now.isoformat().replace("+00:00", "Z")
+    time_max = (now + timedelta(days=days_window)).isoformat().replace("+00:00", "Z")
+    params = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "q": query,
+        "maxResults": "10",
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.get(CALENDAR_API_BASE, headers=headers, params=params)
+            if resp.status_code >= 400:
+                logger.error("Calendar cancel search HTTP %s", resp.status_code)
+                log_action("", "calendar_cancel_event", "", f"http_{resp.status_code}")
+                return "error", []
+            items = resp.json().get("items", [])
+            if not items:
+                log_action("", "calendar_cancel_event", "", "not_found")
+                return "not_found", []
+            if len(items) > 1:
+                summaries = [it.get("summary", "(ללא כותרת)") for it in items]
+                log_action("", "calendar_cancel_event", f"n={len(items)}", "ambiguous")
+                return "ambiguous", summaries
+            event = items[0]
+            event_id = event["id"]
+            summary = event.get("summary", "(ללא כותרת)")
+            del_resp = await client.delete(
+                f"{CALENDAR_API_BASE}/{event_id}", headers=headers
+            )
+            if del_resp.status_code in (200, 204):
+                log_action("", "calendar_cancel_event", "", "ok")
+                return "ok", [summary]
+            logger.error("Calendar delete HTTP %s", del_resp.status_code)
+            log_action("", "calendar_cancel_event", "", f"http_{del_resp.status_code}")
+            return "error", []
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Calendar cancel error: %s", exc.__class__.__name__)
+        log_action("", "calendar_cancel_event", "", "error")
+        return "error", []

@@ -226,6 +226,247 @@ async def test_create_event_timeout_returns_false() -> None:
         assert result["reason"] == "error"
 
 
+# ---- create_event reminders ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_event_default_alert_is_10_min_popup() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_post(self, url, headers=None, json=None):  # noqa: A002
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(return_value={})
+        fake_post.captured = json
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "post", new=fake_post),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        await gcalendar.create_event(
+            "t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00"
+        )
+
+    body = fake_post.captured
+    assert body["reminders"] == {
+        "useDefault": False,
+        "overrides": [{"method": "popup", "minutes": 10}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_event_no_alert_sentinel_clears_reminders() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_post(self, url, headers=None, json=None):  # noqa: A002
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(return_value={})
+        fake_post.captured = json
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "post", new=fake_post),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        await gcalendar.create_event(
+            "t",
+            "2026-05-20T14:00:00+03:00",
+            "2026-05-20T15:00:00+03:00",
+            alert_minutes=-1,
+        )
+
+    body = fake_post.captured
+    assert body["reminders"] == {"useDefault": False, "overrides": []}
+
+
+@pytest.mark.asyncio
+async def test_create_event_custom_alert_minutes() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_post(self, url, headers=None, json=None):  # noqa: A002
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(return_value={})
+        fake_post.captured = json
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "post", new=fake_post),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        await gcalendar.create_event(
+            "t",
+            "2026-05-20T14:00:00+03:00",
+            "2026-05-20T15:00:00+03:00",
+            alert_minutes=30,
+        )
+
+    body = fake_post.captured
+    assert body["reminders"]["overrides"] == [{"method": "popup", "minutes": 30}]
+
+
+# ---- cancel_event_by_query -------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_not_found() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(return_value={"items": []})
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, matches = await gcalendar.cancel_event_by_query("dentist")
+        assert status == "not_found"
+        assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_ambiguous_lists_all() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(
+            return_value={
+                "items": [
+                    {"id": "1", "summary": "Dentist cleaning"},
+                    {"id": "2", "summary": "Dentist crown"},
+                ]
+            }
+        )
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, matches = await gcalendar.cancel_event_by_query("dentist")
+        assert status == "ambiguous"
+        assert matches == ["Dentist cleaning", "Dentist crown"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_single_match_deletes() -> None:
+    creds = _make_creds(valid=True)
+    delete_called: dict = {}
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(
+            return_value={"items": [{"id": "abc123", "summary": "פגישה עם רועי"}]}
+        )
+        return resp
+
+    async def fake_delete(self, url, headers=None):
+        delete_called["url"] = url
+        resp = MagicMock()
+        resp.status_code = 204
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+        patch.object(httpx.AsyncClient, "delete", new=fake_delete),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, matches = await gcalendar.cancel_event_by_query("רועי")
+        assert status == "ok"
+        assert matches == ["פגישה עם רועי"]
+        assert delete_called["url"].endswith("/abc123")
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_search_http_error_returns_error() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 500
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, matches = await gcalendar.cancel_event_by_query("x")
+        assert status == "error"
+        assert matches == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_delete_failure_returns_error() -> None:
+    creds = _make_creds(valid=True)
+
+    async def fake_get(self, url, headers=None, params=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json = MagicMock(return_value={"items": [{"id": "x", "summary": "t"}]})
+        return resp
+
+    async def fake_delete(self, url, headers=None):
+        resp = MagicMock()
+        resp.status_code = 410  # gone
+        return resp
+
+    with (
+        patch("integrations.gcalendar.config") as cfg,
+        patch(
+            "integrations.gcalendar.Credentials.from_authorized_user_info",
+            return_value=creds,
+        ),
+        patch.object(httpx.AsyncClient, "get", new=fake_get),
+        patch.object(httpx.AsyncClient, "delete", new=fake_delete),
+    ):
+        cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
+        status, _ = await gcalendar.cancel_event_by_query("x")
+        assert status == "error"
+
+
 # ---- list_upcoming_events --------------------------------------------------
 
 
@@ -443,6 +684,7 @@ async def test_agent_dispatches_calendar_create_for_yuval() -> None:
             start_datetime="2026-05-20T14:00:00+03:00",
             end_datetime="2026-05-20T15:00:00+03:00",
             description="cleaning",
+            alert_minutes=10,
         )
 
 
@@ -613,6 +855,124 @@ async def test_agent_dispatches_calendar_list_for_yuval() -> None:
         reply = await run(phone, "מה יש לי השבועיים הקרובים")
         assert reply == "הנה הפגישות"
         mock_list.assert_awaited_once_with(days=14)
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatches_calendar_cancel_single_match() -> None:
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.gcalendar.cancel_event_by_query",
+            new=AsyncMock(return_value=("ok", ["פגישה עם רועי"])),
+        ) as mock_cancel,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.messages.create = AsyncMock(
+            side_effect=[
+                _resp(
+                    "tool_use",
+                    [_tool_use("tu1", "calendar_cancel_event", {"query": "רועי"})],
+                ),
+                _resp("end_turn", [_text_block("בוטל")]),
+            ]
+        )
+
+        reply = await run(phone, "תבטל את הפגישה עם רועי")
+        assert reply == "בוטל"
+        mock_cancel.assert_awaited_once_with(query="רועי", days_window=60)
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatch_passes_alert_minutes_default_10() -> None:
+    """When Claude omits alert_minutes, dispatch passes 10."""
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.gcalendar.create_event",
+            new=AsyncMock(
+                return_value={"ok": True, "html_link": "", "reason": ""}
+            ),
+        ) as mock_create,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.messages.create = AsyncMock(
+            side_effect=[
+                _resp(
+                    "tool_use",
+                    [
+                        _tool_use(
+                            "tu1",
+                            "calendar_create_event",
+                            {
+                                "title": "t",
+                                "start_datetime": "2026-05-20T10:00:00+03:00",
+                                "end_datetime": "2026-05-20T11:00:00+03:00",
+                            },
+                        )
+                    ],
+                ),
+                _resp("end_turn", [_text_block("ok")]),
+            ]
+        )
+
+        await run(phone, "x")
+        assert mock_create.await_args.kwargs["alert_minutes"] == 10
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatch_passes_alert_minutes_minus_one() -> None:
+    """When Claude passes alert_minutes=-1, dispatch forwards it (no alert)."""
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.gcalendar.create_event",
+            new=AsyncMock(
+                return_value={"ok": True, "html_link": "", "reason": ""}
+            ),
+        ) as mock_create,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.messages.create = AsyncMock(
+            side_effect=[
+                _resp(
+                    "tool_use",
+                    [
+                        _tool_use(
+                            "tu1",
+                            "calendar_create_event",
+                            {
+                                "title": "t",
+                                "start_datetime": "2026-05-20T10:00:00+03:00",
+                                "end_datetime": "2026-05-20T11:00:00+03:00",
+                                "alert_minutes": -1,
+                            },
+                        )
+                    ],
+                ),
+                _resp("end_turn", [_text_block("ok")]),
+            ]
+        )
+
+        await run(phone, "x")
+        assert mock_create.await_args.kwargs["alert_minutes"] == -1
 
 
 @pytest.mark.asyncio
