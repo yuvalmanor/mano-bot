@@ -9,3 +9,4 @@ google-auth-oauthlib==1.2.1
 google-api-python-client==2.149.0
 pytest==8.3.3
 pytest-asyncio==0.24.0
+tzdata==2024.2

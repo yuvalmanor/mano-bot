@@ -252,7 +252,9 @@ TOOLS: list[dict] = [
         "description": (
             "Create an event on Yuval's Google Calendar. Always confirm title, "
             "start, end, and description with the user before calling. Times "
-            "must be RFC3339 strings (e.g. 2026-05-20T14:00:00+03:00)."
+            "must be RFC3339 strings (e.g. 2026-05-20T14:00:00+03:00). When "
+            "the user does not specify a duration, OMIT end_datetime — the "
+            "server defaults to start + 1 hour."
         ),
         "input_schema": {
             "type": "object",
@@ -264,11 +266,15 @@ TOOLS: list[dict] = [
                 },
                 "end_datetime": {
                     "type": "string",
-                    "description": "RFC3339 end, e.g. 2026-05-20T15:00:00+03:00",
+                    "description": (
+                        "RFC3339 end, e.g. 2026-05-20T15:00:00+03:00. Optional - "
+                        "omit it when the user has not specified a duration; "
+                        "the server will default to start + 1 hour."
+                    ),
                 },
                 "description": {"type": "string"},
             },
-            "required": ["title", "start_datetime", "end_datetime"],
+            "required": ["title", "start_datetime"],
         },
     },
     {

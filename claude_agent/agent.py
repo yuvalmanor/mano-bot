@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from anthropic import AsyncClient
 
@@ -81,6 +83,29 @@ def _language_directive(lang: str) -> str:
         "[Language directive for THIS turn: reply in English. This applies to "
         "confirmation prompts, follow-up questions, and every word of your "
         "reply, regardless of any prior Hebrew turns in this conversation.]"
+    )
+
+
+_ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _date_directive(now: datetime | None = None) -> str:
+    """Per-turn directive carrying today's date + weekday in Israel local time.
+
+    The model's training-knowledge cutoff is months in the past; without an
+    explicit "today is X" anchor, relative phrases like "tomorrow" or "next
+    Sunday" get resolved against an imagined date and land on the wrong
+    calendar day. Injecting the real date at message-time is the code-level
+    backstop.
+    """
+    if now is None:
+        now = datetime.now(_ISRAEL_TZ)
+    weekday = now.strftime("%A")
+    date_str = now.strftime("%Y-%m-%d")
+    return (
+        f"[Today is {weekday}, {date_str} in Israel local time (Asia/Jerusalem). "
+        "Use this when resolving relative dates like 'tomorrow', 'next Sunday', "
+        "'this week'. Do NOT use any date from your training data.]"
     )
 
 
@@ -178,13 +203,33 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
         lines = [f"{r['name'] or '(no name)'} <{r['email']}>" for r in results[:10]]
         return "matches:\n" + "\n".join(lines)
     if name == "calendar_create_event":
-        ok = await gcalendar.create_event(
+        start = args["start_datetime"]
+        end = args.get("end_datetime") or ""
+        if not end:
+            try:
+                start_dt = datetime.fromisoformat(start)
+                end = (start_dt + timedelta(hours=1)).isoformat()
+            except ValueError:
+                return (
+                    "error: invalid start_datetime. The event was NOT created. "
+                    "Tell the user the calendar write failed and ask them to "
+                    "rephrase the time."
+                )
+        result = await gcalendar.create_event(
             title=args["title"],
-            start_datetime=args["start_datetime"],
-            end_datetime=args["end_datetime"],
+            start_datetime=start,
+            end_datetime=end,
             description=args.get("description"),
         )
-        return "ok" if ok else "error"
+        if result.get("ok"):
+            link = result.get("html_link") or ""
+            return f"ok: event created. link={link}" if link else "ok"
+        reason = result.get("reason") or "unknown"
+        return (
+            f"error: calendar write FAILED (reason={reason}). The event was "
+            "NOT created on the calendar. Tell the user the action failed - "
+            "do NOT claim success."
+        )
     if name == "calendar_list_events":
         text = await gcalendar.list_upcoming_events(days=int(args.get("days", 7)))
         return text or "(no events)"
@@ -245,8 +290,11 @@ async def run(user_phone: str, message: str) -> str:
     # back to Hebrew when the latest user message is English (or vice versa).
     # The directive is added only to the message sent to Claude — history
     # persists the original user text.
-    directive = _language_directive(_detect_language(message))
-    messages.append({"role": "user", "content": f"{directive}\n\n{message}"})
+    lang_directive = _language_directive(_detect_language(message))
+    date_directive = _date_directive()
+    messages.append(
+        {"role": "user", "content": f"{date_directive}\n{lang_directive}\n\n{message}"}
+    )
 
     client = AsyncClient(api_key=config.ANTHROPIC_API_KEY)
     final_text = ""

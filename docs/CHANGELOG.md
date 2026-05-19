@@ -6,6 +6,16 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-05-19] — Task 7b iteration: date awareness + default 1h + calendar error surfacing
+- Root cause of last night's "phantom event" (Calendar API returned 200 OK but Yuval couldn't find the event): the model had no anchor for "today" and resolved "tomorrow" against an imagined date from its training-window past. Event was created — just on the wrong day.
+- `claude_agent/agent.py`: new `_date_directive()` injects "Today is <weekday>, <YYYY-MM-DD> in Israel local time (Asia/Jerusalem)" into every user turn, alongside the existing language directive. Code-level anchor so relative dates ("tomorrow", "next Sunday", "this week") resolve against actual today, not the model's prior.
+- `claude_agent/agent.py` dispatch: `calendar_create_event` now defaults `end_datetime = start + 1h` when the model omits it. Code-level default the prompt can't bypass.
+- `claude_agent/tools.py`: `end_datetime` marked optional in the tool schema; description tells Claude to omit it when the user gives no duration.
+- `integrations/gcalendar.py`: `create_event` now returns a dict (`ok`, `html_link`, `reason`) instead of bare bool. The htmlLink from the Calendar API is surfaced back through the tool_result so future "set" replies can include a link to the actual event.
+- `claude_agent/agent.py` dispatch: on `ok=False`, the tool_result is now an emphatic "FAILED... event was NOT created... do NOT claim success" string instead of the bare `"error"` — defense against the model narrating success when the write failed.
+- `requirements.txt`: added `tzdata==2024.2` so `zoneinfo("Asia/Jerusalem")` works on Windows dev (Railway already has system tzdata).
+- Tests: 175 pass (was 171). New: default-1h, error-tool-result, date-directive renders IL date, date-directive injected into user message. 5 existing create_event tests migrated to dict return.
+
 ## [2026-05-18] — Task 6d code done: per-user Google account resolution + Eden gmail wiring
 - `users.py`: each user record now carries a `google_tokens` map (`account_key` → config attribute name). Yuval has all three; Eden has `cgm` → `GOOGLE_TOKEN_EDEN_CGM`. New helper `get_google_token_env_name(phone, account_key)`. Eden now has `gmail` in `permissions` (no notion / calendar / drive yet).
 - `config.py` + `.env.example`: optional `GOOGLE_TOKEN_EDEN_CGM` (`os.getenv`, default `""`). Dev environments without it still boot.

@@ -73,23 +73,27 @@ async def create_event(
     start_datetime: str,
     end_datetime: str,
     description: str | None = None,
-) -> bool:
+) -> dict:
     """Create an event on the primary calendar.
 
     ``start_datetime`` / ``end_datetime`` must be RFC3339 strings (e.g.
-    ``2026-05-20T14:00:00+03:00``). Returns True on success, False on any
-    failure (missing/unreadable token, refresh failure, HTTP error, timeout).
+    ``2026-05-20T14:00:00+03:00``). Returns a dict with:
+      - ``ok``: bool — True on 2xx, False on any failure
+      - ``html_link``: str — the event's Google Calendar URL (empty on failure)
+      - ``reason``: str — short failure reason for the caller to surface
+        (``no_token`` / ``refresh_failed`` / ``http_<code>`` / ``error``).
+        Empty on success.
     Never raises.
     """
     creds = _load_credentials()
     if creds is None:
         log_action("", "calendar_create_event", "", "no_token")
-        return False
+        return {"ok": False, "html_link": "", "reason": "no_token"}
 
     token = await _ensure_access_token(creds)
     if not token:
         log_action("", "calendar_create_event", "", "refresh_failed")
-        return False
+        return {"ok": False, "html_link": "", "reason": "refresh_failed"}
 
     body: dict = {
         "summary": title,
@@ -110,13 +114,18 @@ async def create_event(
         if resp.status_code >= 400:
             logger.error("Calendar create HTTP %s", resp.status_code)
             log_action("", "calendar_create_event", "", f"http_{resp.status_code}")
-            return False
+            return {"ok": False, "html_link": "", "reason": f"http_{resp.status_code}"}
+        html_link = ""
+        try:
+            html_link = resp.json().get("htmlLink", "") or ""
+        except Exception:
+            pass
         log_action("", "calendar_create_event", "", "ok")
-        return True
+        return {"ok": True, "html_link": html_link, "reason": ""}
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         logger.error("Calendar create error: %s", exc.__class__.__name__)
         log_action("", "calendar_create_event", "", "error")
-        return False
+        return {"ok": False, "html_link": "", "reason": "error"}
 
 
 def _format_events(items: list[dict]) -> str:

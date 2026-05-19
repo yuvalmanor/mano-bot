@@ -46,16 +46,18 @@ def _make_creds(valid: bool = True, token: str = "ya29.fake-access", refresh_tok
 async def test_create_event_missing_token_env() -> None:
     with patch("integrations.gcalendar.config") as cfg:
         cfg.GOOGLE_TOKEN_PERSONAL = ""
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is False
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is False
+        assert result["reason"] == "no_token"
 
 
 @pytest.mark.asyncio
 async def test_create_event_invalid_base64() -> None:
     with patch("integrations.gcalendar.config") as cfg:
         cfg.GOOGLE_TOKEN_PERSONAL = "!!!not-base64!!!"
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is False
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is False
+        assert result["reason"] == "no_token"
 
 
 @pytest.mark.asyncio
@@ -65,6 +67,9 @@ async def test_create_event_happy_path() -> None:
     async def fake_post(self, url, headers=None, json=None):  # noqa: A002
         resp = MagicMock()
         resp.status_code = 200
+        resp.json = MagicMock(
+            return_value={"htmlLink": "https://calendar.google.com/event?eid=abc"}
+        )
         fake_post.captured = {"url": url, "headers": headers, "json": json}
         return resp
 
@@ -79,13 +84,15 @@ async def test_create_event_happy_path() -> None:
         patch.object(httpx.AsyncClient, "post", new=fake_post),
     ):
         cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
-        ok = await gcalendar.create_event(
+        result = await gcalendar.create_event(
             "Dentist",
             "2026-05-20T14:00:00+03:00",
             "2026-05-20T15:00:00+03:00",
             description="cleaning",
         )
-        assert ok is True
+        assert result["ok"] is True
+        assert result["html_link"] == "https://calendar.google.com/event?eid=abc"
+        assert result["reason"] == ""
 
     captured = fake_post.captured
     assert captured["url"] == gcalendar.CALENDAR_API_BASE
@@ -104,6 +111,7 @@ async def test_create_event_omits_description_when_none() -> None:
     async def fake_post(self, url, headers=None, json=None):  # noqa: A002
         resp = MagicMock()
         resp.status_code = 200
+        resp.json = MagicMock(return_value={})
         fake_post.captured = json
         return resp
 
@@ -134,6 +142,7 @@ async def test_create_event_refresh_when_invalid() -> None:
     async def fake_post(self, url, headers=None, json=None):  # noqa: A002
         resp = MagicMock()
         resp.status_code = 200
+        resp.json = MagicMock(return_value={})
         fake_post.captured_headers = headers
         return resp
 
@@ -146,8 +155,8 @@ async def test_create_event_refresh_when_invalid() -> None:
         patch.object(httpx.AsyncClient, "post", new=fake_post),
     ):
         cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is True
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is True
         assert fake_post.captured_headers["Authorization"] == "Bearer ya29.refreshed"
 
 
@@ -168,8 +177,9 @@ async def test_create_event_refresh_failure_returns_false() -> None:
         ),
     ):
         cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is False
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is False
+        assert result["reason"] == "refresh_failed"
 
 
 @pytest.mark.asyncio
@@ -190,8 +200,9 @@ async def test_create_event_http_error_returns_false() -> None:
         patch.object(httpx.AsyncClient, "post", new=fake_post),
     ):
         cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is False
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is False
+        assert result["reason"] == "http_403"
 
 
 @pytest.mark.asyncio
@@ -210,8 +221,9 @@ async def test_create_event_timeout_returns_false() -> None:
         patch.object(httpx.AsyncClient, "post", new=fake_post),
     ):
         cfg.GOOGLE_TOKEN_PERSONAL = _b64(VALID_TOKEN_INFO)
-        ok = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
-        assert ok is False
+        result = await gcalendar.create_event("t", "2026-05-20T14:00:00+03:00", "2026-05-20T15:00:00+03:00")
+        assert result["ok"] is False
+        assert result["reason"] == "error"
 
 
 # ---- list_upcoming_events --------------------------------------------------
@@ -392,7 +404,13 @@ async def test_agent_dispatches_calendar_create_for_yuval() -> None:
         patch("claude_agent.agent.AsyncClient") as mock_client_class,
         patch(
             "claude_agent.agent.gcalendar.create_event",
-            new=AsyncMock(return_value=True),
+            new=AsyncMock(
+                return_value={
+                    "ok": True,
+                    "html_link": "https://calendar.google.com/event?eid=abc",
+                    "reason": "",
+                }
+            ),
         ) as mock_create,
     ):
         mock_client = MagicMock()
@@ -426,6 +444,144 @@ async def test_agent_dispatches_calendar_create_for_yuval() -> None:
             end_datetime="2026-05-20T15:00:00+03:00",
             description="cleaning",
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_defaults_end_to_start_plus_one_hour_when_omitted() -> None:
+    """When the model omits end_datetime, dispatch computes start + 1h."""
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.gcalendar.create_event",
+            new=AsyncMock(
+                return_value={"ok": True, "html_link": "", "reason": ""}
+            ),
+        ) as mock_create,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.messages.create = AsyncMock(
+            side_effect=[
+                _resp(
+                    "tool_use",
+                    [
+                        _tool_use(
+                            "tu1",
+                            "calendar_create_event",
+                            {
+                                "title": "Coffee",
+                                "start_datetime": "2026-05-20T14:00:00+03:00",
+                            },
+                        )
+                    ],
+                ),
+                _resp("end_turn", [_text_block("נקבע")]),
+            ]
+        )
+
+        await run(phone, "קפה עם דנה מחר ב-14")
+        kwargs = mock_create.await_args.kwargs
+        assert kwargs["start_datetime"] == "2026-05-20T14:00:00+03:00"
+        assert kwargs["end_datetime"] == "2026-05-20T15:00:00+03:00"
+
+
+@pytest.mark.asyncio
+async def test_agent_propagates_calendar_error_to_tool_result() -> None:
+    """If create_event returns ok=False, the tool_result must say FAILED."""
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    captured_messages: list = []
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.gcalendar.create_event",
+            new=AsyncMock(
+                return_value={"ok": False, "html_link": "", "reason": "http_403"}
+            ),
+        ),
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        async def fake_create(**kwargs):
+            captured_messages.append(kwargs["messages"])
+            if len(captured_messages) == 1:
+                return _resp(
+                    "tool_use",
+                    [
+                        _tool_use(
+                            "tu1",
+                            "calendar_create_event",
+                            {
+                                "title": "x",
+                                "start_datetime": "2026-05-20T14:00:00+03:00",
+                                "end_datetime": "2026-05-20T15:00:00+03:00",
+                            },
+                        )
+                    ],
+                )
+            return _resp("end_turn", [_text_block("הפעולה נכשלה")])
+
+        mock_client.messages.create = AsyncMock(side_effect=fake_create)
+
+        await run(phone, "תקבע פגישה")
+
+    # Second API call should have the tool_result with the loud error string.
+    second_call_msgs = captured_messages[1]
+    tool_result_block = second_call_msgs[-1]["content"][0]
+    assert tool_result_block["type"] == "tool_result"
+    content = tool_result_block["content"]
+    assert "FAILED" in content
+    assert "NOT created" in content
+    assert "http_403" in content
+
+
+def test_date_directive_renders_israel_date() -> None:
+    """Per-turn directive must carry today's IL date + weekday."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from claude_agent.agent import _date_directive
+
+    fixed = datetime(2026, 5, 19, 9, 0, tzinfo=ZoneInfo("Asia/Jerusalem"))
+    out = _date_directive(now=fixed)
+    assert "2026-05-19" in out
+    assert "Tuesday" in out
+    assert "Israel local time" in out
+
+
+@pytest.mark.asyncio
+async def test_agent_injects_date_directive_into_user_message() -> None:
+    """The first API call must include today's date in the user message."""
+    from claude_agent.agent import CONVERSATION_HISTORY, run
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+    captured: list = []
+
+    with patch("claude_agent.agent.AsyncClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        async def fake_create(**kwargs):
+            captured.append(kwargs["messages"])
+            return _resp("end_turn", [_text_block("ok")])
+
+        mock_client.messages.create = AsyncMock(side_effect=fake_create)
+        await run(phone, "מה השעה")
+
+    first_user_content = captured[0][-1]["content"]
+    assert "Israel local time" in first_user_content
+    assert "Asia/Jerusalem" in first_user_content
 
 
 @pytest.mark.asyncio
