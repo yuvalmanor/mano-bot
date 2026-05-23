@@ -65,7 +65,7 @@ The goal is to work in the best way possible while managing the risk.
 | 7a | Google Calendar — code + mocked tests | ✅ Done | 🟡 | `integrations/gcalendar.py` + 2 Claude tools + 17 tests (94 total) passing; OAuth helper already requests `calendar.events` scope, so existing `GOOGLE_TOKEN_PERSONAL` should work in 7b without re-OAuth |
 | 7b | Google Calendar — live verification | ✅ Done | 🔴 | All flows live-verified: create (relative date, default 1h + 10-min alert), custom alert, no alert, list upcoming, cancel by name, ambiguous cancel. |
 | 8a | Google Drive — code + mocked tests | ✅ Done | 🟡 | `integrations/drive.py` (read-only) + `drive_search_files` tool + 13 tests (107 total) passing; OAuth helper already includes `drive.readonly` scope, so existing GOOGLE_TOKEN_* should work in 8b without re-OAuth |
-| 8b | Google Drive — live verification | 🔲 Not started | 🔴 | Unblocked by Task 2b SIM. Run after Task 7b. |
+| 8b | Google Drive — live verification | ⚠️ Skipped | 🔴 | Deferred — not yet live-tested. Resume when needed. |
 | 9 | Audit logging | ✅ Done | 🟢 | `GET /audit` admin endpoint + `audit.tail()` helper + confirm/cancel logging at router; 9 new tests (116 total) passing. Tool invocations / write outcomes / unauthorized attempts were already logged across the integrations and security layer. |
 | 10 | End-to-end testing | 🔲 Not started | 🔴 | full network activity |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |

@@ -150,6 +150,9 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 <!-- Claude Code appends below this line after each completed task -->
 
+## [2026-05-23] — Task 8b: Google Drive live verification deferred
+- Live testing skipped for now. Code (Task 8a) is complete and tested with mocked HTTP. Resume when Drive search is needed in production.
+
 ## [2026-05-23] — Task 7b: Google Calendar live verification ✅
 - All calendar flows verified end-to-end via WhatsApp: create event with relative date ("מחר ב-10"), default 1h duration + 10-min alert, custom alert minutes, no-alert (-1), list upcoming events, cancel by name (unique match), cancel with ambiguous match.
 - No code changes — prompt-only and dispatch logic from 7b iterations held up in production.
