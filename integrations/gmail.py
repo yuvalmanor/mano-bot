@@ -179,6 +179,23 @@ def _header(headers: list[dict], name: str) -> str:
     return ""
 
 
+def _extract_body(payload: dict) -> str:
+    """Recursively extract the plain-text body from a format=full Gmail payload."""
+    mime = payload.get("mimeType") or ""
+    if mime == "text/plain":
+        data = (payload.get("body") or {}).get("data") or ""
+        if data:
+            try:
+                return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+    for part in payload.get("parts") or []:
+        result = _extract_body(part)
+        if result:
+            return result
+    return ""
+
+
 def _format_summary(messages: list[dict]) -> str:
     if not messages:
         return ""
@@ -189,8 +206,11 @@ def _format_summary(messages: list[dict]) -> str:
         sender = _header(headers, "From")
         subject = _header(headers, "Subject") or "(no subject)"
         date = _header(headers, "Date")
-        snippet = (msg.get("snippet") or "").strip()
-        lines.append(f"• {subject}\n  {sender} - {date}\n  {snippet}")
+        body = _extract_body(payload).strip()
+        if len(body) > 1000:
+            body = body[:1000] + "…"
+        content = body if body else (msg.get("snippet") or "").strip()
+        lines.append(f"• {subject}\n  {sender} - {date}\n  {content}")
     return "\n\n".join(lines)
 
 
@@ -271,10 +291,7 @@ async def search_inbox(
                 get_resp = await client.get(
                     GMAIL_GET_URL.format(id=mid),
                     headers=headers,
-                    params={
-                        "format": "metadata",
-                        "metadataHeaders": ["From", "Subject", "Date"],
-                    },
+                    params={"format": "full"},
                 )
                 if get_resp.status_code >= 400:
                     logger.error("Gmail get HTTP %s for msg", get_resp.status_code)

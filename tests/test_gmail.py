@@ -238,25 +238,36 @@ async def test_search_inbox_bad_account() -> None:
 async def test_search_inbox_happy_path_formats_summary() -> None:
     creds = _make_creds(valid=True)
 
+    def _b64url(text: str) -> str:
+        return base64.urlsafe_b64encode(text.encode()).decode()
+
     list_body = {"messages": [{"id": "m1"}, {"id": "m2"}]}
     msg1 = {
         "snippet": "first snippet",
         "payload": {
+            "mimeType": "multipart/alternative",
             "headers": [
                 {"name": "From", "value": "alice@x.com"},
                 {"name": "Subject", "value": "Hello"},
                 {"name": "Date", "value": "Mon, 1 Jan 2026"},
-            ]
+            ],
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": _b64url("Hello full body")}},
+            ],
         },
     }
     msg2 = {
         "snippet": "second snippet",
         "payload": {
+            "mimeType": "multipart/alternative",
             "headers": [
                 {"name": "From", "value": "bob@y.com"},
                 {"name": "Subject", "value": "Invoice"},
                 {"name": "Date", "value": "Tue, 2 Jan 2026"},
-            ]
+            ],
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": _b64url("Invoice body text")}},
+            ],
         },
     }
 
@@ -286,9 +297,54 @@ async def test_search_inbox_happy_path_formats_summary() -> None:
 
     assert "Hello" in out
     assert "alice@x.com" in out
-    assert "first snippet" in out
+    assert "Hello full body" in out
     assert "Invoice" in out
     assert "bob@y.com" in out
+    assert "Invoice body text" in out
+
+
+def test_extract_body_simple_text_plain() -> None:
+    data = base64.urlsafe_b64encode(b"plain body").decode()
+    payload = {"mimeType": "text/plain", "body": {"data": data}}
+    assert gmail._extract_body(payload) == "plain body"
+
+
+def test_extract_body_multipart_finds_text_plain() -> None:
+    data = base64.urlsafe_b64encode(b"multipart body").decode()
+    payload = {
+        "mimeType": "multipart/alternative",
+        "parts": [
+            {"mimeType": "text/html", "body": {"data": base64.urlsafe_b64encode(b"<b>html</b>").decode()}},
+            {"mimeType": "text/plain", "body": {"data": data}},
+        ],
+    }
+    assert gmail._extract_body(payload) == "multipart body"
+
+
+def test_extract_body_no_text_plain_returns_empty() -> None:
+    payload = {
+        "mimeType": "multipart/alternative",
+        "parts": [
+            {"mimeType": "text/html", "body": {"data": base64.urlsafe_b64encode(b"<b>html</b>").decode()}},
+        ],
+    }
+    assert gmail._extract_body(payload) == ""
+
+
+def test_format_summary_falls_back_to_snippet_when_no_body() -> None:
+    msg = {
+        "snippet": "fallback snippet",
+        "payload": {
+            "mimeType": "text/html",
+            "headers": [
+                {"name": "From", "value": "x@x.com"},
+                {"name": "Subject", "value": "Sub"},
+                {"name": "Date", "value": "now"},
+            ],
+        },
+    }
+    out = gmail._format_summary([msg])
+    assert "fallback snippet" in out
 
 
 @pytest.mark.asyncio
