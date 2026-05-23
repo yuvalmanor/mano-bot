@@ -150,6 +150,11 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 <!-- Claude Code appends below this line after each completed task -->
 
+## [2026-05-23] — Task 10: End-to-end testing complete
+- Core flows verified live via WhatsApp: Claude conversation, Gmail (send/read/trash/contacts), Google Calendar (create/list/cancel/alerts), Notion (tasks + ideas).
+- Skipped: Task 4 security live tests (unit tests cover signature/rate-limit paths), Task 8 Drive (deferred), Task 9 audit endpoint (deferred).
+- TESTING.md updated with all results.
+
 ## [2026-05-23] — Task 8b: Google Drive live verification deferred
 - Live testing skipped for now. Code (Task 8a) is complete and tested with mocked HTTP. Resume when Drive search is needed in production.
 

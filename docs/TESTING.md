@@ -56,14 +56,14 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| POST with missing X-Hub-Signature-256 → 403 | 🔲 | |
-| POST with wrong signature → 403 | 🔲 | |
-| POST with correct signature → processed normally | 🔲 | |
-| Message from unregistered phone → 200, no reply, audit log entry | 🔲 | |
-| 21st message from same phone in 10 min → Hebrew rate limit warning | 🔲 | |
-| Pending action not confirmed in 5 min → expired, user informed | 🔲 | |
-| Pending action cancelled with "לא" → cancelled, bot acks | 🔲 | |
-| BOT_ENABLED=false → all messages silently ignored, /health still works | 🔲 | |
+| POST with missing X-Hub-Signature-256 → 403 | ⚠️ Skipped | Unit tests cover this — deferred |
+| POST with wrong signature → 403 | ⚠️ Skipped | Unit tests cover this — deferred |
+| POST with correct signature → processed normally | ⚠️ Skipped | Unit tests cover this — deferred |
+| Message from unregistered phone → 200, no reply, audit log entry | ⚠️ Skipped | Deferred |
+| 21st message from same phone in 10 min → Hebrew rate limit warning | ⚠️ Skipped | Unit tests cover this — deferred |
+| Pending action not confirmed in 5 min → expired, user informed | ⚠️ Skipped | Deferred |
+| Pending action cancelled with "לא" → cancelled, bot acks | ⚠️ Skipped | Deferred |
+| BOT_ENABLED=false → all messages silently ignored, /health still works | ⚠️ Skipped | Deferred |
 
 ---
 
@@ -71,14 +71,14 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| "תוסיף משימה לקרוא מייל" → bot proposes with bucket, asks לאשר? | 🔲 | |
-| Reply "כן" → task appears in My Task List in Notion | 🔲 | |
-| Reply "לא" → bot confirms cancellation, no task created | 🔲 | |
-| "תראה לי את המשימות" → formatted list per bucket → date → priority | 🔲 | |
-| "תראה לי משימות ב-Business" → filtered list | 🔲 | |
-| "יש לי רעיון — chatbot לדיירים" → routes to Idea Lab, confirms | 🔲 | |
-| Idea appears in Idea Lab with status 🌱 Raw | 🔲 | |
-| Eden's phone sends task request → Hebrew denial | 🔲 | |
+| "תוסיף משימה לקרוא מייל" → bot proposes with bucket, asks לאשר? | ✅ | 2026-05-23 |
+| Reply "כן" → task appears in My Task List in Notion | ✅ | 2026-05-23 |
+| Reply "לא" → bot confirms cancellation, no task created | ✅ | 2026-05-23 |
+| "תראה לי את המשימות" → formatted list per bucket → date → priority | ✅ | 2026-05-23 |
+| "תראה לי משימות ב-Business" → filtered list | ✅ | 2026-05-23 |
+| "יש לי רעיון — chatbot לדיירים" → routes to Idea Lab, confirms | ✅ | 2026-05-23 |
+| Idea appears in Idea Lab with status 🌱 Raw | ✅ | 2026-05-23 |
+| Eden's phone sends task request → Hebrew denial | ✅ | 2026-05-23 |
 
 ---
 
@@ -111,19 +111,19 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| "תוסיף פגישה עם רועי ביום ראשון ב-10" → bot proposes event, confirms | 🔲 | |
-| Reply "כן" → event appears in Google Calendar | 🔲 | |
-| "מה יש לי השבוע" → upcoming 7-day events listed | 🔲 | |
-| Ambiguous time → bot asks for clarification before confirming | 🔲 | |
-| Confirmation message includes alert prompt (default 10 min before) | 🔲 | New 2026-05-19 — default alert |
-| "תקבע פגישה ... עם התראה 30 דקות" → event created with 30-min popup | 🔲 | New 2026-05-19 — custom alert |
-| "תקבע פגישה ... בלי התראה" → event created with no reminders | 🔲 | New 2026-05-19 — alert_minutes=-1 |
-| "תקבע פגישה מחר ב-10" → bot resolves "תמחר" to actual tomorrow (date directive) | 🔲 | New 2026-05-19 — regression for the phantom-event bug |
-| After create, bot's reply includes the event link from htmlLink | 🔲 | New 2026-05-19 — link visibility |
-| "תבטל את הפגישה עם רועי" → bot confirms candidate event, asks לאשר? | 🔲 | New 2026-05-19 — cancel_event_by_query |
-| Reply "כן" after cancel confirmation → event removed from Calendar | 🔲 | New 2026-05-19 — cancel happy path |
-| Cancel query with multiple matches → bot presents list, asks which one | 🔲 | New 2026-05-19 — ambiguous |
-| Cancel query with no matches → bot reports not found | 🔲 | New 2026-05-19 — not_found |
+| "תוסיף פגישה עם רועי ביום ראשון ב-10" → bot proposes event, confirms | ✅ | 2026-05-23 |
+| Reply "כן" → event appears in Google Calendar | ✅ | 2026-05-23 |
+| "מה יש לי השבוע" → upcoming 7-day events listed | ✅ | 2026-05-23 |
+| Ambiguous time → bot asks for clarification before confirming | ✅ | 2026-05-23 |
+| Confirmation message includes alert prompt (default 10 min before) | ✅ | 2026-05-23 |
+| "תקבע פגישה ... עם התראה 30 דקות" → event created with 30-min popup | ✅ | 2026-05-23 |
+| "תקבע פגישה ... בלי התראה" → event created with no reminders | ✅ | 2026-05-23 |
+| "תקבע פגישה מחר ב-10" → bot resolves "מחר" to actual tomorrow (date directive) | ✅ | 2026-05-23 |
+| After create, bot's reply includes the event link from htmlLink | N/A | Intentionally removed in Task 7b iteration #4 — bot replies with short confirmation only, no link |
+| "תבטל את הפגישה עם רועי" → bot confirms candidate event, asks לאשר? | ✅ | 2026-05-23 |
+| Reply "כן" after cancel confirmation → event removed from Calendar | ✅ | 2026-05-23 |
+| Cancel query with multiple matches → bot presents list, asks which one | ✅ | 2026-05-23 |
+| Cancel query with no matches → bot reports not found | ✅ | 2026-05-23 |
 
 ---
 
@@ -141,12 +141,12 @@ git add . && git commit -m "your message" && git push
 
 | Test | Status | Notes |
 |---|---|---|
-| After test session: audit.log exists and has entries | 🔲 | |
-| All action types logged: message, tool calls, confirms, cancels, unauthorized | 🔲 | |
-| No credential values visible in audit.log | 🔲 | |
-| Phone numbers masked (last 4 digits only) | 🔲 | |
-| GET /audit with correct ADMIN_TOKEN → returns last 50 entries | 🔲 | |
-| GET /audit with wrong token → 403 | 🔲 | |
+| After test session: audit.log exists and has entries | ⚠️ Skipped | Deferred |
+| All action types logged: message, tool calls, confirms, cancels, unauthorized | ⚠️ Skipped | Deferred |
+| No credential values visible in audit.log | ⚠️ Skipped | Deferred |
+| Phone numbers masked (last 4 digits only) | ⚠️ Skipped | Deferred |
+| GET /audit with correct ADMIN_TOKEN → returns last 50 entries | ⚠️ Skipped | Deferred |
+| GET /audit with wrong token → 403 | ⚠️ Skipped | Deferred |
 
 ---
 
