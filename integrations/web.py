@@ -29,6 +29,21 @@ from security.audit import log_action
 logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 10.0
+# A realistic browser User-Agent + Accept headers. News/tech sites behind a
+# WAF/CDN (Cloudflare, Incapsula) frequently 403 an obvious bot UA when the
+# request comes from a datacenter IP (e.g. Railway). Looking like a browser
+# clears the common static checks.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
+}
 # Cap on returned text so it's safe to feed back into the model context.
 MAX_TEXT_CHARS = 8000
 # Cap on bytes we read off the wire before parsing (defensive against huge pages).
@@ -141,9 +156,7 @@ async def fetch_url(url: str) -> str:
         async with httpx.AsyncClient(
             timeout=TIMEOUT_SECONDS, follow_redirects=True
         ) as client:
-            resp = await client.get(
-                url, headers={"User-Agent": "Mozilla/5.0 (compatible; ManoBot/1.0)"}
-            )
+            resp = await client.get(url, headers=_BROWSER_HEADERS)
         if resp.status_code >= 400:
             logger.error("web fetch_url HTTP %s", resp.status_code)
             log_action("", "web_fetch_url", "", f"http_{resp.status_code}")
