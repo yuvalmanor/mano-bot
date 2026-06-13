@@ -785,3 +785,125 @@ async def test_get_idea_query_http_error() -> None:
         status, content = await notion.get_idea("x")
     assert status == "error"
     assert content == ""
+
+
+# ---- Knowledge DB ----------------------------------------------------------
+
+
+@pytest.fixture
+def _knowledge_db(monkeypatch) -> None:
+    """Configure a Knowledge DB id for the duration of a test."""
+    monkeypatch.setattr(notion.config, "NOTION_KNOWLEDGE_DB_ID", "kdb-1")
+
+
+def _knowledge_page(page_id: str, title: str, topics=None, source=None) -> dict:
+    props: dict = {"Title": {"title": [{"plain_text": title}]}}
+    if topics is not None:
+        props["Topic"] = {"multi_select": [{"name": t} for t in topics]}
+    if source is not None:
+        props["Source"] = {"url": source}
+    return {"id": page_id, "properties": props}
+
+
+@pytest.mark.asyncio
+async def test_add_knowledge_not_configured() -> None:
+    # NOTION_KNOWLEDGE_DB_ID unset by default → short-circuit, no HTTP.
+    assert await notion.add_knowledge("Wineries") == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_add_knowledge_writes_props_and_body(_knowledge_db) -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "k1"}),
+    ])
+    with cm:
+        ok = await notion.add_knowledge(
+            "Saturday Wineries",
+            topics=["Wine", "Travel"],
+            content="Tishbi open Sat 10-17.",
+            source_url="https://example.com/w",
+        )
+    assert ok == "ok"
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert body["parent"]["database_id"] == "kdb-1"
+    assert body["properties"]["Title"]["title"][0]["text"]["content"] == "Saturday Wineries"
+    assert body["properties"]["Topic"]["multi_select"] == [{"name": "Wine"}, {"name": "Travel"}]
+    assert body["properties"]["Source"]["url"] == "https://example.com/w"
+    assert any(b.get("type") == "bookmark" for b in body["children"])
+
+
+@pytest.mark.asyncio
+async def test_add_knowledge_duplicate(_knowledge_db) -> None:
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    cm, client = _scripted_post([
+        _resp(200, {"results": [{"id": "dup", "created_time": now_iso}]}),
+    ])
+    with cm:
+        ok = await notion.add_knowledge("Saturday Wineries")
+    assert ok == "duplicate"
+    assert client.post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_list_knowledge_groups_by_topic(_knowledge_db) -> None:
+    cm, _ = _scripted_post([
+        _resp(200, {"results": [
+            _knowledge_page("k1", "Saturday Wineries", topics=["Wine"]),
+            _knowledge_page("k2", "Negev road trip", topics=["Travel"]),
+        ]}),
+    ])
+    with cm:
+        text = await notion.list_knowledge()
+    assert "📚 Wine" in text
+    assert "Saturday Wineries" in text
+    assert "📚 Travel" in text
+
+
+@pytest.mark.asyncio
+async def test_list_knowledge_not_configured() -> None:
+    assert await notion.list_knowledge() == ""
+
+
+@pytest.mark.asyncio
+async def test_get_knowledge_assembles_content(_knowledge_db) -> None:
+    page = _knowledge_page(
+        "k1", "Saturday Wineries", topics=["Wine"], source="https://example.com/w"
+    )
+    blocks = {"results": [
+        {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Tishbi open Sat"}]}},
+    ]}
+    comments = {"results": []}
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(200, {"results": [page]})],
+        get_script=[_resp(200, blocks), _resp(200, comments)],
+    )
+    with cm:
+        status, content = await notion.get_knowledge("winer")
+    assert status == "ok"
+    assert "Saturday Wineries" in content
+    assert "Topics: Wine" in content
+    assert "https://example.com/w" in content
+    assert "Tishbi open Sat" in content
+
+
+@pytest.mark.asyncio
+async def test_get_knowledge_not_configured() -> None:
+    status, content = await notion.get_knowledge("x")
+    assert status == "not_configured"
+    assert content == ""
+
+
+@pytest.mark.asyncio
+async def test_get_knowledge_ambiguous(_knowledge_db) -> None:
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(200, {"results": [
+            _knowledge_page("a", "Wine bars"),
+            _knowledge_page("b", "Wineries north"),
+        ]})],
+        get_script=[],
+    )
+    with cm:
+        status, content = await notion.get_knowledge("wine")
+    assert status == "ambiguous"
+    assert "Wine bars" in content and "Wineries north" in content

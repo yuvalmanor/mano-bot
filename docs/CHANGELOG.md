@@ -6,6 +6,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-06-13] — Task 13: Phase 2 — dedicated Knowledge DB
+- New dedicated Notion DB for saved articles/links/references, separate from the Idea Lab. Lean schema: `Title` (title) / `Topic` (multi_select, free-form tags) / `Source` (url) / `Saved` (created_time); distilled content + link in the page body.
+- `config.NOTION_KNOWLEDGE_DB_ID` — **optional** env var (not in REQUIRED_VARS); feature returns `not_configured` until set, so code deploys safely before the DB id exists.
+- `integrations/notion.py`: `add_knowledge` / `list_knowledge` / `get_knowledge`, reusing phase-1 helpers (`_idea_body_blocks`, `_fetch_block_text`, `_fetch_comments_text`, `_recent_duplicate_exists`, title/multi_select/url extractors). 5-min dedupe on save.
+- New tools `notion_save_knowledge` / `notion_list_knowledge` / `notion_get_knowledge` (perm `knowledge`, Yuval only; save tool is in the single-call guard). System prompt reworked: link/article saving + "save to my DB" routes to the Knowledge DB; "I have an idea" stays Idea Lab; older Idea-Lab items still readable via `notion_get_idea`.
+- Tests: +10 in `test_notion.py` / `test_agent.py` (props/body build, dedupe, topic grouping, get assembly, ambiguous, `not_configured` guards, dispatch, Eden denial). 225/225 passing.
+- Rollout pending: create the 📚 Knowledge DB in Notion, share it with the bot integration, set `NOTION_KNOWLEDGE_DB_ID` in Railway.
+
 ## [2026-06-13] — Task 12: Knowledge DB — read idea content + open links
 - New `integrations/web.py`: `fetch_url(url)` fetches a page and returns readable text. Stdlib `html.parser`-based HTML→text (no new pip dep), 10s timeout, ~8000-char cap, SSRF guard (http/https only; blocks localhost/private/link-local hosts). Returns `""` on any failure.
 - `integrations/notion.py`: new `get_idea(title)` reads one idea's full content (Description + page body blocks + comments) by the same fuzzy-title match as archive/comment; returns `(status, content)`. `add_idea` extended with optional `content` + `source_url` → writes a source bookmark and chunked (≤1900-char) content paragraphs into the page body. Existing callers unchanged.

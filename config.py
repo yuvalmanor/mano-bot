@@ -54,6 +54,10 @@ NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_TASK_DB_ID = os.environ["NOTION_TASK_DB_ID"]
 NOTION_IDEAS_DB_ID = os.environ["NOTION_IDEAS_DB_ID"]
 NOTION_BUCKETS_DB_ID = os.environ["NOTION_BUCKETS_DB_ID"]
+# Phase-2 dedicated Knowledge DB (Task 13). Optional: the feature stays inert
+# (functions return "not_configured") until this is set in the Railway env, so
+# the code can deploy before the DB id exists. Set it after creating the DB.
+NOTION_KNOWLEDGE_DB_ID = os.getenv("NOTION_KNOWLEDGE_DB_ID", "")
 
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_TOKEN_PERSONAL = os.environ["GOOGLE_TOKEN_PERSONAL"]

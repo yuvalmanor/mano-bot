@@ -144,6 +144,81 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "notion_save_knowledge",
+        "description": (
+            "Save an item to the Knowledge DB — Yuval's personal store of saved "
+            "articles, links, and references (separate from the Idea Lab). Use "
+            "this when the user wants to remember/save an article or link 'to my "
+            "DB' / 'knowledge base' / 'for later'. FIRST call fetch_url to read "
+            "the link, distill the useful facts into `content`, propose a title "
+            "and one or more topic tags, and confirm before saving. Always "
+            "confirm with the user before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "topics": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Free-form topical tags, e.g. ['Wine'], ['Travel','Food']. "
+                        "Inferred from the content; keep them short and reusable."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Distilled useful facts saved into the item's page body "
+                        "(names, hours, locations, key points). Optional."
+                    ),
+                },
+                "source_url": {
+                    "type": "string",
+                    "description": "Source link, saved so it can be re-opened later.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "notion_list_knowledge",
+        "description": (
+            "List items from the Knowledge DB, grouped by topic. Optional `topic` "
+            "filter (case matters — use a tag like 'Wine'). Use this to browse "
+            "what the user has saved before drilling into one with "
+            "notion_get_knowledge."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Topic tag to filter by."},
+            },
+        },
+    },
+    {
+        "name": "notion_get_knowledge",
+        "description": (
+            "Read the FULL content of one Knowledge DB item (its topics, source "
+            "link, page body, and comments), matched by fuzzy title "
+            "(case-insensitive substring). Use this to answer questions about "
+            "what the user saved — e.g. 'from my DB, which wineries are open "
+            "Saturday'. If it returns 'ambiguous', ask which one. If the saved "
+            "content isn't enough and a source link is present, call fetch_url "
+            "on that link."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Substring of the item title (case-insensitive).",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "fetch_url",
         "description": (
             "Fetch a web page (or any http/https link) and return its readable "

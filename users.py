@@ -12,7 +12,7 @@ USERS = {
     "+972542159121": {
         "name": "Yuval",
         "language": "he",
-        "permissions": ["notion", "gmail", "calendar", "drive", "idea_lab", "web"],
+        "permissions": ["notion", "gmail", "calendar", "drive", "idea_lab", "web", "knowledge"],
         "google_tokens": {
             "personal": "GOOGLE_TOKEN_PERSONAL",
             "cgm": "GOOGLE_TOKEN_CGM",

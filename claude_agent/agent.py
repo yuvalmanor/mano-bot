@@ -41,6 +41,9 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_archive_idea": "idea_lab",
     "notion_comment_idea": "idea_lab",
     "notion_get_idea": "idea_lab",
+    "notion_save_knowledge": "knowledge",
+    "notion_list_knowledge": "knowledge",
+    "notion_get_knowledge": "knowledge",
     "fetch_url": "web",
     "gmail_send_email": "gmail",
     "gmail_search_inbox": "gmail",
@@ -155,6 +158,27 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
             return "not_found"
         if status == "ambiguous":
             return "ambiguous: " + content
+        return "error"
+    if name == "notion_save_knowledge":
+        return await notion.add_knowledge(
+            title=args["title"],
+            topics=args.get("topics"),
+            content=args.get("content"),
+            source_url=args.get("source_url"),
+        )
+    if name == "notion_list_knowledge":
+        text = await notion.list_knowledge(topic=args.get("topic"))
+        return text or "(no items)"
+    if name == "notion_get_knowledge":
+        status, content = await notion.get_knowledge(title=args["title"])
+        if status == "ok":
+            return content
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + content
+        if status == "not_configured":
+            return "not_configured"
         return "error"
     if name == "fetch_url":
         text = await web.fetch_url(url=args["url"])
@@ -337,6 +361,7 @@ async def run(user_phone: str, message: str) -> str:
     # hard backstop so duplicate adds become structurally impossible.
     SINGLE_CALL_TOOLS = {
         "notion_add_idea",
+        "notion_save_knowledge",
         "notion_add_task",
         "notion_archive_idea",
         "notion_archive_task",

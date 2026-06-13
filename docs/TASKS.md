@@ -69,7 +69,8 @@ The goal is to work in the best way possible while managing the risk.
 | 9 | Audit logging | ✅ Done | 🟢 | `GET /audit` admin endpoint + `audit.tail()` helper + confirm/cancel logging at router; 9 new tests (116 total) passing. Tool invocations / write outcomes / unauthorized attempts were already logged across the integrations and security layer. |
 | 10 | End-to-end testing | ✅ Done | 🔴 | Core flows verified: Claude, Gmail, Calendar, Notion. Security/audit/drive deferred (unit tests cover security; drive skipped). |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |
-| 12 | Knowledge DB — read idea content + open links | 🟨 Code + tests done, live verification pending | 🔴 | New `integrations/web.py` (`fetch_url` + SSRF guard + stdlib HTML→text, no new dep); `notion.get_idea` reads Description + page body + comments; `add_idea` gains optional `content`/`source_url` → writes link bookmark + chunked content into the page body. New tools `fetch_url` (perm `web`) + `notion_get_idea`; system-prompt "Knowledge DB" flow. 215 tests passing. Live verify outbound to Notion + arbitrary web. |
+| 12 | Knowledge DB — read idea content + open links | ✅ Code + tests done; live-verified (geektime fetch worked after browser-headers fix) | 🔴 | New `integrations/web.py` (`fetch_url` + SSRF guard + stdlib HTML→text, no new dep); `notion.get_idea` reads Description + page body + comments; `add_idea` gains optional `content`/`source_url` → writes link bookmark + chunked content into the page body. New tools `fetch_url` (perm `web`) + `notion_get_idea`; system-prompt "Knowledge DB" flow. Commits cdb68cc + bb2812c (browser headers fix for datacenter-IP WAF blocks). |
+| 13 | Phase 2 — dedicated Knowledge DB | 🟨 Code + tests done; DB creation + Railway env pending | 🔴 | New Notion DB (Title/Topic multi_select/Source url/Saved) separate from Idea Lab. `config.NOTION_KNOWLEDGE_DB_ID` optional; `notion.add_knowledge`/`list_knowledge`/`get_knowledge`; tools `notion_save_knowledge`/`notion_list_knowledge`/`notion_get_knowledge` (perm `knowledge`); prompt routing reworked. 225 tests passing. **Pending:** create 📚 Knowledge DB in Notion, share with bot integration, set `NOTION_KNOWLEDGE_DB_ID` in Railway. |
 
 Status legend: 🔲 Not started | 🔄 In progress | ✅ Done | ⚠️ Blocked
 
@@ -660,3 +661,40 @@ then recall facts from it later ("from my DB, list Saturday-open wineries").
 4. Confirm the live Idea Lab property names match (`Idea`/`Description`/`Bucket`).
 
 **Done when:** save-from-link and recall-from-DB both work end-to-end on WhatsApp.
+
+---
+
+### Task 13 — Phase 2: dedicated Knowledge DB
+**Risk: 🔴 High risk — outbound HTTPS to Notion**
+
+**Goal:** Graduate the knowledge store into its own Notion database, separate
+from the Idea Lab. "Save this article / from my DB list X" becomes a
+first-class flow distinct from brainstorm "ideas".
+
+**Schema (lean):** `Title` (title) · `Topic` (multi_select, free-form topical
+tags) · `Source` (url) · `Saved` (created_time). Distilled content + link in
+the page body.
+
+**Code (✅ done, 225 tests passing):**
+- `config.NOTION_KNOWLEDGE_DB_ID` — optional (`os.getenv` default ""); functions
+  return `not_configured` until set.
+- `integrations/notion.py` — `add_knowledge` / `list_knowledge` /
+  `get_knowledge` (reuse `_idea_body_blocks`, `_fetch_block_text`,
+  `_fetch_comments_text`, `_recent_duplicate_exists`; new `_extract_multi_select`
+  / `_extract_url`).
+- Tools `notion_save_knowledge` / `notion_list_knowledge` /
+  `notion_get_knowledge`; perm `knowledge` (Yuval); save tool in single-call
+  guard; prompt routing reworked (articles/links → Knowledge DB, ideas → Idea
+  Lab).
+
+**Rollout (pending):**
+1. Create the 📚 Knowledge DB in Notion under Headquarters with the schema above.
+2. Share it with the bot's internal Notion integration (DB → ••• →
+   Connections → add the Mano integration).
+3. Set `NOTION_KNOWLEDGE_DB_ID` in Railway env to the DB id; redeploy.
+
+**Live verification:** WhatsApp "save this link to my DB" → item appears with
+title + topic tag + source + body; "from my DB, what's saved about wine?" →
+answered from the DB.
+
+**Done when:** save + recall against the dedicated Knowledge DB work end-to-end.
