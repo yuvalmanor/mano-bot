@@ -305,3 +305,104 @@ async def test_agent_tool_use_loop_limit() -> None:
         reply = await run(phone, "loop forever")
         assert reply == HEBREW_ERROR
         assert mock_client.messages.create.await_count == MAX_TOOL_ITERATIONS
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatch_fetch_url_and_get_idea() -> None:
+    """Yuval has 'web' + 'idea_lab' — fetch_url then notion_get_idea dispatch."""
+    from claude_agent.agent import CONVERSATION_HISTORY
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch(
+            "claude_agent.agent.web.fetch_url",
+            new=AsyncMock(return_value="Tishbi open Saturday 10-17"),
+        ) as mock_fetch,
+        patch(
+            "claude_agent.agent.notion.get_idea",
+            new=AsyncMock(return_value=("ok", "# Wineries\n\nTishbi open Sat")),
+        ) as mock_get,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        responses = [
+            _response("tool_use", [_tool_use_block("t1", "fetch_url", {"url": "https://x.com/a"})]),
+            _response("tool_use", [_tool_use_block("t2", "notion_get_idea", {"title": "wineries"})]),
+            _response("end_turn", [_text_block("Tishbi open Saturday")]),
+        ]
+        mock_client.messages.create = AsyncMock(side_effect=responses)
+
+        reply = await run(phone, "from my DB list saturday wineries")
+        assert reply == "Tishbi open Saturday"
+        mock_fetch.assert_awaited_once_with(url="https://x.com/a")
+        mock_get.assert_awaited_once_with(title="wineries")
+
+
+@pytest.mark.asyncio
+async def test_agent_fetch_url_denied_for_eden() -> None:
+    """Eden lacks the 'web' permission — fetch_url must not run."""
+    from claude_agent.agent import CONVERSATION_HISTORY
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972546900908"  # Eden
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch("claude_agent.agent.web.fetch_url", new=AsyncMock(return_value="x")) as mock_fetch,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        responses = [
+            _response("tool_use", [_tool_use_block("t1", "fetch_url", {"url": "https://x.com"})]),
+            _response("end_turn", [_text_block("אין הרשאה")]),
+        ]
+        mock_client.messages.create = AsyncMock(side_effect=responses)
+
+        reply = await run(phone, "read this https://x.com")
+        assert reply == "אין הרשאה"
+        mock_fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agent_add_idea_passes_content_and_url() -> None:
+    """notion_add_idea dispatch forwards content + source_url to the integration."""
+    from claude_agent.agent import CONVERSATION_HISTORY
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch("claude_agent.agent.notion.add_idea", new=AsyncMock(return_value="ok")) as mock_add,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        responses = [
+            _response(
+                "tool_use",
+                [_tool_use_block(
+                    "t1",
+                    "notion_add_idea",
+                    {
+                        "title": "Wineries",
+                        "content": "Tishbi open Sat",
+                        "source_url": "https://x.com/a",
+                        "bucket": "Personal",
+                    },
+                )],
+            ),
+            _response("end_turn", [_text_block("נשמר")]),
+        ]
+        mock_client.messages.create = AsyncMock(side_effect=responses)
+
+        await run(phone, "save this")
+        mock_add.assert_awaited_once_with(
+            title="Wineries",
+            description=None,
+            bucket="Personal",
+            content="Tishbi open Sat",
+            source_url="https://x.com/a",
+        )

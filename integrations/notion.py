@@ -68,6 +68,47 @@ def _extract_plain_title(page: dict, prop_name: str) -> str:
     return "".join(p.get("plain_text", "") for p in parts)
 
 
+def _extract_rich_text(page: dict, prop_name: str) -> str:
+    parts = (page.get("properties", {}).get(prop_name) or {}).get("rich_text", []) or []
+    return "".join(p.get("plain_text", "") for p in parts)
+
+
+# Notion caps a single rich_text item at 2000 chars; chunk below that.
+_BLOCK_TEXT_LIMIT = 1900
+
+
+def _paragraph_block(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [{"type": "text", "text": {"content": text}}]
+        },
+    }
+
+
+def _idea_body_blocks(content: str | None, source_url: str | None) -> list[dict]:
+    """Build page-body blocks: a source bookmark + chunked content paragraphs."""
+    blocks: list[dict] = []
+    if source_url:
+        blocks.append(_paragraph_block(f"Source: {source_url}"))
+        blocks.append({"object": "block", "type": "bookmark", "bookmark": {"url": source_url}})
+    if content:
+        for i in range(0, len(content), _BLOCK_TEXT_LIMIT):
+            blocks.append(_paragraph_block(content[i : i + _BLOCK_TEXT_LIMIT]))
+    return blocks
+
+
+def _block_to_text(block: dict) -> str:
+    """Extract readable text from a single Notion block (best-effort)."""
+    btype = block.get("type", "")
+    payload = block.get(btype) or {}
+    if btype == "bookmark":
+        return payload.get("url", "")
+    rich = payload.get("rich_text") or []
+    return "".join(r.get("plain_text", "") for r in rich)
+
+
 async def _load_buckets() -> None:
     """Populate the bucket name<->id caches from the My Life Buckets DB.
 
@@ -185,13 +226,23 @@ async def add_task(title: str, bucket: str, due_date: str | None = None) -> str:
 
 
 async def add_idea(
-    title: str, description: str | None = None, bucket: str | None = None
+    title: str,
+    description: str | None = None,
+    bucket: str | None = None,
+    content: str | None = None,
+    source_url: str | None = None,
 ) -> str:
     """Create an idea page in My Ideas.
 
     Returns one of ``"ok"`` | ``"ok_no_bucket"`` | ``"duplicate"`` | ``"error"``.
     ``bucket`` is optional; when provided it's resolved to a My Life Buckets
     relation. Unknown bucket → created without relation (status ``ok_no_bucket``).
+
+    ``content`` and ``source_url`` are the knowledge-DB extension: when either
+    is supplied, the page *body* gets a source bookmark and the distilled
+    article content (chunked into paragraph blocks), so the idea is readable
+    and the link re-openable later. Callers that omit both keep the original
+    title/description/bucket behavior unchanged.
     """
     if await _recent_duplicate_exists(config.NOTION_IDEAS_DB_ID, "Idea", title):
         log_action("", "notion_add_idea", "", "duplicate")
@@ -211,6 +262,9 @@ async def add_idea(
         "parent": {"database_id": config.NOTION_IDEAS_DB_ID},
         "properties": properties,
     }
+    body_blocks = _idea_body_blocks(content, source_url)
+    if body_blocks:
+        payload["children"] = body_blocks
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
@@ -405,6 +459,117 @@ async def add_idea_comment(idea_title: str, comment: str) -> tuple[str, list[str
 
     log_action("", "notion_add_idea_comment", f"title={matched_title}", "ok")
     return ("ok", [matched_title])
+
+
+async def get_idea(title: str) -> tuple[str, str]:
+    """Read one idea's full content from the Idea Lab, matched by fuzzy title.
+
+    Returns ``(status, content)`` where status is one of:
+      * ``"ok"`` — single match; ``content`` = Description + page body + comments.
+      * ``"not_found"`` — no idea matches. ``content=""``.
+      * ``"ambiguous"`` — multiple matches; ``content`` = candidate titles joined
+        with `` | `` (same shape the dispatcher uses for archive/comment).
+      * ``"error"`` — HTTP or transport error. ``content=""``.
+
+    Match rule: case-insensitive substring against the Idea title — identical to
+    ``archive_idea`` / ``add_idea_comment``.
+    """
+    needle = title.strip().lower()
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                f"{NOTION_API}/databases/{config.NOTION_IDEAS_DB_ID}/query",
+                headers=_headers(),
+                json={"page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion get_idea query HTTP %s", resp.status_code)
+            log_action("", "notion_get_idea", f"title={title}", f"http_{resp.status_code}")
+            return ("error", "")
+        pages = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion get_idea query error: %s", exc.__class__.__name__)
+        log_action("", "notion_get_idea", f"title={title}", "error")
+        return ("error", "")
+
+    matches: list[tuple[str, str]] = []
+    for page in pages:
+        page_title = _extract_plain_title(page, "Idea")
+        if needle in page_title.lower():
+            matches.append((page.get("id", ""), page_title))
+
+    if not matches:
+        log_action("", "notion_get_idea", f"title={title}", "not_found")
+        return ("not_found", "")
+    if len(matches) > 1:
+        log_action("", "notion_get_idea", f"title={title}", "ambiguous")
+        return ("ambiguous", " | ".join(t for _, t in matches))
+
+    page_id, matched_title = matches[0]
+    matched_page = next(p for p in pages if p.get("id") == page_id)
+
+    sections: list[str] = [f"# {matched_title}"]
+    description = _extract_rich_text(matched_page, "Description")
+    if description:
+        sections.append(description)
+
+    body = await _fetch_block_text(page_id)
+    if body:
+        sections.append(body)
+
+    comments = await _fetch_comments_text(page_id)
+    if comments:
+        sections.append("Comments:\n" + comments)
+
+    log_action("", "notion_get_idea", f"title={matched_title}", "ok")
+    return ("ok", "\n\n".join(sections))
+
+
+async def _fetch_block_text(page_id: str) -> str:
+    """Return the page body as text (paragraphs/headings/bookmarks). '' on error."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.get(
+                f"{NOTION_API}/blocks/{page_id}/children",
+                headers=_headers(),
+                params={"page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion get_idea blocks HTTP %s", resp.status_code)
+            return ""
+        blocks = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion get_idea blocks error: %s", exc.__class__.__name__)
+        return ""
+
+    lines = [t for t in (_block_to_text(b) for b in blocks) if t]
+    return "\n".join(lines)
+
+
+async def _fetch_comments_text(page_id: str) -> str:
+    """Return page comments as newline-joined text. '' on error or none."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            resp = await client.get(
+                f"{NOTION_API}/comments",
+                headers=_headers(),
+                params={"block_id": page_id, "page_size": 100},
+            )
+        if resp.status_code >= 400:
+            logger.error("Notion get_idea comments HTTP %s", resp.status_code)
+            return ""
+        comments = resp.json().get("results", [])
+    except (httpx.TimeoutException, httpx.HTTPError) as exc:
+        logger.error("Notion get_idea comments error: %s", exc.__class__.__name__)
+        return ""
+
+    lines: list[str] = []
+    for c in comments:
+        text = "".join(r.get("plain_text", "") for r in c.get("rich_text", []) or [])
+        if text:
+            lines.append(f"- {text}")
+    return "\n".join(lines)
 
 
 async def archive_task(title: str) -> tuple[str, list[str]]:

@@ -76,14 +76,36 @@ TOOLS: list[dict] = [
         "description": (
             "Add an idea to the Idea Lab. Always confirm with the user before "
             "calling. After a successful add, ask the user if they have any "
-            "details or comments about the idea; if yes, call notion_comment_idea."
+            "details or comments about the idea; if yes, call notion_comment_idea. "
+            "When saving an article or link the user wants to remember, FIRST "
+            "call fetch_url to read it, then pass a distilled summary of the "
+            "useful facts as `content` and the link as `source_url` so it can "
+            "be read back later."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "title": {"type": "string"},
-                "description": {"type": "string"},
+                "description": {
+                    "type": "string",
+                    "description": "Short one-line summary (stored as a property).",
+                },
                 "bucket": {"type": "string", "enum": BUCKETS},
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Longer distilled content saved into the idea's page "
+                        "body — e.g. the useful facts extracted from an article "
+                        "(names, hours, locations). Optional."
+                    ),
+                },
+                "source_url": {
+                    "type": "string",
+                    "description": (
+                        "Source link to save with the idea so it can be "
+                        "re-opened/re-read later. Optional."
+                    ),
+                },
             },
             "required": ["title"],
         },
@@ -96,6 +118,44 @@ TOOLS: list[dict] = [
             "properties": {
                 "filter_bucket": {"type": "string"},
             },
+        },
+    },
+    {
+        "name": "notion_get_idea",
+        "description": (
+            "Read the FULL content of one idea in the Idea Lab (its description, "
+            "page body, saved link, and comments), matched by fuzzy title "
+            "(case-insensitive substring). Use this to answer questions about "
+            "what the user stored — e.g. 'from my DB, list Saturday-open "
+            "wineries'. If the tool returns 'ambiguous', ask the user which one "
+            "and call again with a more specific title. If the content contains "
+            "a source link and you need more detail than was saved, call "
+            "fetch_url on that link."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Substring of the idea title (case-insensitive).",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "fetch_url",
+        "description": (
+            "Fetch a web page (or any http/https link) and return its readable "
+            "text. Use it to read an article the user shares before saving it to "
+            "the Idea Lab, or to re-read a link saved with an idea. Read-only."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "http/https URL to fetch."},
+            },
+            "required": ["url"],
         },
     },
     {

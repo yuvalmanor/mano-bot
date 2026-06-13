@@ -6,6 +6,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-06-13] — Task 12: Knowledge DB — read idea content + open links
+- New `integrations/web.py`: `fetch_url(url)` fetches a page and returns readable text. Stdlib `html.parser`-based HTML→text (no new pip dep), 10s timeout, ~8000-char cap, SSRF guard (http/https only; blocks localhost/private/link-local hosts). Returns `""` on any failure.
+- `integrations/notion.py`: new `get_idea(title)` reads one idea's full content (Description + page body blocks + comments) by the same fuzzy-title match as archive/comment; returns `(status, content)`. `add_idea` extended with optional `content` + `source_url` → writes a source bookmark and chunked (≤1900-char) content paragraphs into the page body. Existing callers unchanged.
+- New tools `fetch_url` (perm `web`, given to Yuval) and `notion_get_idea` (perm `idea_lab`); `notion_add_idea` schema gains `content`/`source_url`. Both new tools are read-only (not in the single-call guard).
+- System prompt: new "Knowledge DB" subsection (save link → fetch_url + distill + add_idea with content/source_url; recall → list_ideas + get_idea + optional fetch_url) and updated honesty note.
+- Tests: new `tests/test_web.py`; extended `tests/test_notion.py` (body-block build + chunking + get_idea ok/not_found/ambiguous/error) and `tests/test_agent.py` (fetch_url/get_idea dispatch, Eden `web` denial, content/url passthrough). 215/215 passing.
+- Live verification pending (🔴): outbound to Notion + arbitrary web.
+
 ## [2026-05-19] — Task 7b iteration #4: drop event link from reply
 - User feedback: do not include the Calendar event URL in the WhatsApp reply.
 - `claude_agent/agent.py` dispatch: `calendar_create_event` success now returns plain `"ok"` instead of `"ok: event created. link=<htmlLink>"`. The model never sees the link, so it can't surface it.

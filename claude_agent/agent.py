@@ -12,7 +12,7 @@ from anthropic import AsyncClient
 import config
 from claude_agent.system_prompt import SYSTEM_PROMPT
 from claude_agent.tools import TOOLS
-from integrations import contacts, drive, gcalendar, gmail, notion
+from integrations import contacts, drive, gcalendar, gmail, notion, web
 from security.audit import log_action
 from users import has_permission
 
@@ -40,6 +40,8 @@ TOOL_PERMISSIONS: dict[str, str] = {
     "notion_list_ideas": "idea_lab",
     "notion_archive_idea": "idea_lab",
     "notion_comment_idea": "idea_lab",
+    "notion_get_idea": "idea_lab",
+    "fetch_url": "web",
     "gmail_send_email": "gmail",
     "gmail_search_inbox": "gmail",
     "gmail_trash_email": "gmail",
@@ -139,10 +141,24 @@ async def _dispatch_tool(name: str, args: dict, user_phone: str | None = None) -
             title=args["title"],
             description=args.get("description"),
             bucket=args.get("bucket"),
+            content=args.get("content"),
+            source_url=args.get("source_url"),
         )
     if name == "notion_list_ideas":
         text = await notion.list_ideas(filter_bucket=args.get("filter_bucket"))
         return text or "(no ideas)"
+    if name == "notion_get_idea":
+        status, content = await notion.get_idea(title=args["title"])
+        if status == "ok":
+            return content
+        if status == "not_found":
+            return "not_found"
+        if status == "ambiguous":
+            return "ambiguous: " + content
+        return "error"
+    if name == "fetch_url":
+        text = await web.fetch_url(url=args["url"])
+        return text or "(could not read this link)"
     if name == "notion_archive_idea":
         status, matches = await notion.archive_idea(title=args["title"])
         if status == "ok":

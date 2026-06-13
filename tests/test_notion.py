@@ -626,3 +626,162 @@ async def test_bucket_cache_loads_once() -> None:
 
     # 5 total POSTs: 2 dedupe + 1 buckets load + 2 page creates.
     assert client.post.await_count == 5
+
+
+# ---- add_idea with content / source_url (knowledge DB) ---------------------
+
+
+@pytest.mark.asyncio
+async def test_add_idea_writes_body_blocks_for_content_and_url() -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "new-idea"}),
+    ])
+    with cm:
+        ok = await notion.add_idea(
+            "Wineries",
+            content="Tishbi - open Sat 10-17. Recanati - open Sat.",
+            source_url="https://example.com/wineries",
+        )
+    assert ok == "ok"
+    body = client.post.await_args_list[1].kwargs["json"]
+    children = body["children"]
+    # Source paragraph + bookmark + at least one content paragraph.
+    assert any(b.get("type") == "bookmark" for b in children)
+    assert children[1]["bookmark"]["url"] == "https://example.com/wineries"
+    joined = "".join(
+        rt["text"]["content"]
+        for b in children
+        if b.get("type") == "paragraph"
+        for rt in b["paragraph"]["rich_text"]
+    )
+    assert "Tishbi" in joined
+    assert "https://example.com/wineries" in joined
+
+
+@pytest.mark.asyncio
+async def test_add_idea_chunks_long_content() -> None:
+    long_content = "x" * 4100  # > 2 * 1900 → 3 paragraph blocks
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "new-idea"}),
+    ])
+    with cm:
+        ok = await notion.add_idea("Long", content=long_content)
+    assert ok == "ok"
+    children = client.post.await_args_list[1].kwargs["json"]["children"]
+    para = [b for b in children if b.get("type") == "paragraph"]
+    assert len(para) == 3
+    assert all(
+        len(b["paragraph"]["rich_text"][0]["text"]["content"]) <= 1900 for b in para
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_idea_no_content_omits_children() -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "new-idea"}),
+    ])
+    with cm:
+        await notion.add_idea("Plain idea")
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert "children" not in body
+
+
+# ---- get_idea --------------------------------------------------------------
+
+
+def _scripted_get_post(post_script, get_script):
+    """AsyncClient stand-in that scripts ``.post`` and ``.get`` by call order."""
+    client = MagicMock()
+    pstate = {"i": 0}
+    gstate = {"i": 0}
+
+    def _post(url, **kwargs):
+        item = post_script[pstate["i"]]
+        pstate["i"] += 1
+        return item
+
+    def _get(url, **kwargs):
+        item = get_script[gstate["i"]]
+        gstate["i"] += 1
+        return item
+
+    client.post = AsyncMock(side_effect=_post)
+    client.get = AsyncMock(side_effect=_get)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return patch("integrations.notion.httpx.AsyncClient", return_value=cm), client
+
+
+@pytest.mark.asyncio
+async def test_get_idea_single_match_assembles_content() -> None:
+    page = {
+        "id": "idea-1",
+        "properties": {
+            "Idea": {"title": [{"plain_text": "Wineries"}]},
+            "Description": {"rich_text": [{"plain_text": "Saturday wineries"}]},
+        },
+    }
+    blocks = {
+        "results": [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Tishbi open Sat"}]}},
+            {"type": "bookmark", "bookmark": {"url": "https://example.com/w"}},
+        ]
+    }
+    comments = {"results": [{"rich_text": [{"plain_text": "visited, great"}]}]}
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(200, {"results": [page]})],
+        get_script=[_resp(200, blocks), _resp(200, comments)],
+    )
+    with cm:
+        status, content = await notion.get_idea("winer")
+    assert status == "ok"
+    assert "Wineries" in content
+    assert "Saturday wineries" in content
+    assert "Tishbi open Sat" in content
+    assert "https://example.com/w" in content
+    assert "visited, great" in content
+
+
+@pytest.mark.asyncio
+async def test_get_idea_not_found() -> None:
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(200, {"results": [_idea_page("idea-1", "Other")]})],
+        get_script=[],
+    )
+    with cm:
+        status, content = await notion.get_idea("winer")
+    assert status == "not_found"
+    assert content == ""
+
+
+@pytest.mark.asyncio
+async def test_get_idea_ambiguous_returns_titles() -> None:
+    cm, _ = _scripted_get_post(
+        post_script=[
+            _resp(200, {"results": [
+                _idea_page("a", "Wine bars"),
+                _idea_page("b", "Wineries north"),
+            ]})
+        ],
+        get_script=[],
+    )
+    with cm:
+        status, content = await notion.get_idea("wine")
+    assert status == "ambiguous"
+    assert "Wine bars" in content and "Wineries north" in content
+
+
+@pytest.mark.asyncio
+async def test_get_idea_query_http_error() -> None:
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(500)],
+        get_script=[],
+    )
+    with cm:
+        status, content = await notion.get_idea("x")
+    assert status == "error"
+    assert content == ""

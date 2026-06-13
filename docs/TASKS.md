@@ -69,6 +69,7 @@ The goal is to work in the best way possible while managing the risk.
 | 9 | Audit logging | ✅ Done | 🟢 | `GET /audit` admin endpoint + `audit.tail()` helper + confirm/cancel logging at router; 9 new tests (116 total) passing. Tool invocations / write outcomes / unauthorized attempts were already logged across the integrations and security layer. |
 | 10 | End-to-end testing | ✅ Done | 🔴 | Core flows verified: Claude, Gmail, Calendar, Notion. Security/audit/drive deferred (unit tests cover security; drive skipped). |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |
+| 12 | Knowledge DB — read idea content + open links | 🟨 Code + tests done, live verification pending | 🔴 | New `integrations/web.py` (`fetch_url` + SSRF guard + stdlib HTML→text, no new dep); `notion.get_idea` reads Description + page body + comments; `add_idea` gains optional `content`/`source_url` → writes link bookmark + chunked content into the page body. New tools `fetch_url` (perm `web`) + `notion_get_idea`; system-prompt "Knowledge DB" flow. 215 tests passing. Live verify outbound to Notion + arbitrary web. |
 
 Status legend: 🔲 Not started | 🔄 In progress | ✅ Done | ⚠️ Blocked
 
@@ -622,3 +623,40 @@ Steps:
 8. Update CHANGELOG.md with v1.0.0 release entry
 
 **Done when:** Real WhatsApp message from Yuval's phone gets a correct Claude reply in production.
+
+---
+
+### Task 12 — Knowledge DB: read idea content + open links
+**Risk: 🔴 High risk — outbound HTTPS to Notion + arbitrary web fetch**
+
+**Goal:** Turn the Idea Lab into a personal knowledge DB — save an article/link,
+then recall facts from it later ("from my DB, list Saturday-open wineries").
+
+**Code (✅ done):**
+- `integrations/web.py` — `fetch_url(url) -> str`. httpx 10s timeout,
+  follow_redirects; stdlib `html.parser` HTML→text (no new pip dep); ~8000-char
+  cap; SSRF guard (http/https only, blocks localhost/private/link-local). `""`
+  on any failure.
+- `integrations/notion.py` — `get_idea(title) -> (status, content)` (fuzzy match
+  like archive/comment; assembles Description + body blocks + comments).
+  `add_idea` extended with optional `content` + `source_url` → page-body
+  bookmark + chunked (≤1900-char) paragraphs. Existing callers unchanged.
+- `claude_agent/tools.py` — new `fetch_url`, `notion_get_idea`; `notion_add_idea`
+  schema gains `content`/`source_url`.
+- `claude_agent/agent.py` — dispatch + `TOOL_PERMISSIONS` (`fetch_url`→`web`,
+  `notion_get_idea`→`idea_lab`) + `web` import. Read-only tools, not in
+  `SINGLE_CALL_TOOLS`.
+- `users.py` — Yuval gets `web` permission (Eden does not).
+- `claude_agent/system_prompt.py` — "Knowledge DB" subsection + honesty note.
+- Tests: `tests/test_web.py`, extended `test_notion.py` + `test_agent.py`
+  (215 passing).
+
+**Live verification (pending — 🔴, full SentinelOne protocol):**
+1. Send Mano a real article URL → it fetches, proposes title+bucket, and on
+   confirm the Notion idea page body holds the link + distilled content.
+2. "from my DB, list me Saturday-open wineries in Israel" → reads the idea
+   back and answers.
+3. An existing idea with a link can now be read/opened.
+4. Confirm the live Idea Lab property names match (`Idea`/`Description`/`Bucket`).
+
+**Done when:** save-from-link and recall-from-DB both work end-to-end on WhatsApp.
