@@ -907,3 +907,89 @@ async def test_get_knowledge_ambiguous(_knowledge_db) -> None:
         status, content = await notion.get_knowledge("wine")
     assert status == "ambiguous"
     assert "Wine bars" in content and "Wineries north" in content
+
+
+# ---- Recipes DB (same engine, Tags property) -------------------------------
+
+
+@pytest.fixture
+def _recipes_db(monkeypatch) -> None:
+    monkeypatch.setattr(notion.config, "NOTION_RECIPES_DB_ID", "rdb-1")
+
+
+def _recipe_page(page_id: str, title: str, tags=None, source=None) -> dict:
+    props: dict = {"Title": {"title": [{"plain_text": title}]}}
+    if tags is not None:
+        props["Tags"] = {"multi_select": [{"name": t} for t in tags]}
+    if source is not None:
+        props["Source"] = {"url": source}
+    return {"id": page_id, "properties": props}
+
+
+@pytest.mark.asyncio
+async def test_add_recipe_not_configured() -> None:
+    assert await notion.add_recipe("Shakshuka") == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_add_recipe_writes_tags_and_body(_recipes_db) -> None:
+    cm, client = _scripted_post([
+        _dedupe_empty(),
+        _resp(200, {"id": "r1"}),
+    ])
+    with cm:
+        ok = await notion.add_recipe(
+            "Creamy chicken pasta",
+            tags=["Chicken", "Pasta"],
+            content="Boil pasta. Fry chicken. Combine.",
+            source_url="https://example.com/r",
+        )
+    assert ok == "ok"
+    body = client.post.await_args_list[1].kwargs["json"]
+    assert body["parent"]["database_id"] == "rdb-1"
+    assert body["properties"]["Title"]["title"][0]["text"]["content"] == "Creamy chicken pasta"
+    assert body["properties"]["Tags"]["multi_select"] == [{"name": "Chicken"}, {"name": "Pasta"}]
+    assert body["properties"]["Source"]["url"] == "https://example.com/r"
+    assert any(b.get("type") == "bookmark" for b in body["children"])
+
+
+@pytest.mark.asyncio
+async def test_list_recipes_groups_by_tag(_recipes_db) -> None:
+    cm, _ = _scripted_post([
+        _resp(200, {"results": [
+            _recipe_page("r1", "Creamy chicken pasta", tags=["Chicken", "Pasta"]),
+            _recipe_page("r2", "Lentil soup", tags=["Soup"]),
+        ]}),
+    ])
+    with cm:
+        text = await notion.list_recipes()
+    assert "🍳 Chicken" in text
+    assert "🍳 Pasta" in text
+    assert "🍳 Soup" in text
+    assert "Creamy chicken pasta" in text
+
+
+@pytest.mark.asyncio
+async def test_get_recipe_assembles_content(_recipes_db) -> None:
+    page = _recipe_page("r1", "Lentil soup", tags=["Soup"], source="https://example.com/r")
+    blocks = {"results": [
+        {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Simmer lentils 30 min"}]}},
+    ]}
+    comments = {"results": []}
+    cm, _ = _scripted_get_post(
+        post_script=[_resp(200, {"results": [page]})],
+        get_script=[_resp(200, blocks), _resp(200, comments)],
+    )
+    with cm:
+        status, content = await notion.get_recipe("lentil")
+    assert status == "ok"
+    assert "Lentil soup" in content
+    assert "Tags: Soup" in content
+    assert "Simmer lentils 30 min" in content
+
+
+@pytest.mark.asyncio
+async def test_get_recipe_not_configured() -> None:
+    status, content = await notion.get_recipe("x")
+    assert status == "not_configured"
+    assert content == ""

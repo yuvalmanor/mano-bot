@@ -6,6 +6,14 @@ Format: `## [YYYY-MM-DD] — [description]` followed by bullet points.
 
 ---
 
+## [2026-06-13] — Task 14: Recipes DB (+ generalized collection engine)
+- New 🍳 Recipes DB in Notion (under Headquarters, id `9e247468dd744038adb89c4b9db3ef7c`): `Title` / `Tags` (multi_select: Salad/Soup/Vegetables/Chicken/Seafood/Beef/Pasta/Sauces, grows freely) / `Source` / `Saved`. Ingredients + steps in the page body.
+- Refactor: the Knowledge DB's add/list/get were generalized into `_collection_add` / `_collection_list` / `_collection_get` in `integrations/notion.py` (parameterized by db id + tag property + label/emoji). Knowledge and Recipes are now thin wrappers — future collection DBs are ~6 lines + a tool + a prompt blurb.
+- `config.NOTION_RECIPES_DB_ID` (optional, same inert-until-set pattern). `notion.add_recipe` / `list_recipes` / `get_recipe`.
+- New tools `notion_save_recipe` / `notion_list_recipes` / `notion_get_recipe` (perm `recipes`, Yuval; save tool in single-call guard). System prompt: recipe routing (recipe → Recipes DB, non-recipe link → Knowledge DB, idea → Idea Lab).
+- Tests: +7 (recipe add/list/get + dispatch + Eden denial + not_configured); Knowledge tests unchanged and still green. 232/232 passing.
+- Rollout pending: share the Recipes DB with the bot integration, set `NOTION_RECIPES_DB_ID` in Railway.
+
 ## [2026-06-13] — Task 13: Phase 2 — dedicated Knowledge DB
 - New dedicated Notion DB for saved articles/links/references, separate from the Idea Lab. Lean schema: `Title` (title) / `Topic` (multi_select, free-form tags) / `Source` (url) / `Saved` (created_time); distilled content + link in the page body.
 - `config.NOTION_KNOWLEDGE_DB_ID` — **optional** env var (not in REQUIRED_VARS); feature returns `not_configured` until set, so code deploys safely before the DB id exists.

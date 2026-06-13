@@ -70,7 +70,8 @@ The goal is to work in the best way possible while managing the risk.
 | 10 | End-to-end testing | ✅ Done | 🔴 | Core flows verified: Claude, Gmail, Calendar, Notion. Security/audit/drive deferred (unit tests cover security; drive skipped). |
 | 11 | Railway production deploy | 🔲 Not started | 🟡 | git push only |
 | 12 | Knowledge DB — read idea content + open links | ✅ Code + tests done; live-verified (geektime fetch worked after browser-headers fix) | 🔴 | New `integrations/web.py` (`fetch_url` + SSRF guard + stdlib HTML→text, no new dep); `notion.get_idea` reads Description + page body + comments; `add_idea` gains optional `content`/`source_url` → writes link bookmark + chunked content into the page body. New tools `fetch_url` (perm `web`) + `notion_get_idea`; system-prompt "Knowledge DB" flow. Commits cdb68cc + bb2812c (browser headers fix for datacenter-IP WAF blocks). |
-| 13 | Phase 2 — dedicated Knowledge DB | 🟨 Code + tests done; DB creation + Railway env pending | 🔴 | New Notion DB (Title/Topic multi_select/Source url/Saved) separate from Idea Lab. `config.NOTION_KNOWLEDGE_DB_ID` optional; `notion.add_knowledge`/`list_knowledge`/`get_knowledge`; tools `notion_save_knowledge`/`notion_list_knowledge`/`notion_get_knowledge` (perm `knowledge`); prompt routing reworked. 225 tests passing. **Pending:** create 📚 Knowledge DB in Notion, share with bot integration, set `NOTION_KNOWLEDGE_DB_ID` in Railway. |
+| 13 | Phase 2 — dedicated Knowledge DB | 🟨 Code + tests done; DB created, Railway env + integration share pending | 🔴 | New 📚 Knowledge DB (id `b0d65abf871d48a293126e1a12d46097`) Title/Topic/Source/Saved, separate from Idea Lab. `config.NOTION_KNOWLEDGE_DB_ID` optional; tools `notion_save/list/get_knowledge` (perm `knowledge`). **Pending:** share DB with bot integration, set `NOTION_KNOWLEDGE_DB_ID` in Railway. |
+| 14 | Recipes DB (+ generalized collection engine) | 🟨 Code + tests done; DB created, Railway env + integration share pending | 🔴 | New 🍳 Recipes DB (id `9e247468dd744038adb89c4b9db3ef7c`) Title/Tags/Source/Saved. Knowledge+Recipes now share generic `_collection_add/list/get` helpers. `config.NOTION_RECIPES_DB_ID` optional; tools `notion_save/list/get_recipe` (perm `recipes`). 232 tests passing. **Pending:** share DB with bot integration, set `NOTION_RECIPES_DB_ID` in Railway. |
 
 Status legend: 🔲 Not started | 🔄 In progress | ✅ Done | ⚠️ Blocked
 
@@ -698,3 +699,38 @@ title + topic tag + source + body; "from my DB, what's saved about wine?" →
 answered from the DB.
 
 **Done when:** save + recall against the dedicated Knowledge DB work end-to-end.
+
+---
+
+### Task 14 — Recipes DB (+ generalized collection engine)
+**Risk: 🔴 High risk — outbound HTTPS to Notion**
+
+**Goal:** Same as Task 13 but for recipes, and factor the shared machinery so
+adding future collection DBs is trivial.
+
+**Schema:** 🍳 Recipes DB (under Headquarters, id
+`9e247468dd744038adb89c4b9db3ef7c`): `Title` · `Tags` (multi_select: Salad,
+Soup, Vegetables, Chicken, Seafood, Beef, Pasta, Sauces; grows freely) ·
+`Source` (url) · `Saved` (created_time). Ingredients + steps in the page body.
+
+**Code (✅ done, 232 tests):**
+- `integrations/notion.py` — generic `_collection_add` / `_collection_list` /
+  `_collection_get` (db id + tag property + label/emoji params); Knowledge and
+  Recipes are thin wrappers. New `add_recipe` / `list_recipes` / `get_recipe`.
+- `config.NOTION_RECIPES_DB_ID` (optional). Tools `notion_save_recipe` /
+  `notion_list_recipes` / `notion_get_recipe`; perm `recipes`; save in
+  single-call guard; prompt recipe routing.
+
+**Rollout (pending):**
+1. Share the 🍳 Recipes DB with the bot's internal Notion integration
+   (DB → ••• → Connections → add the Mano integration).
+2. Set `NOTION_RECIPES_DB_ID=9e247468dd744038adb89c4b9db3ef7c` in Railway;
+   redeploy.
+
+**Live verification:** "save this recipe" + a link → recipe item with tags +
+source + ingredients/steps in the body; "what chicken recipes do I have?" →
+answered from the DB.
+
+**Adding future collection DBs:** create the Notion DB, add a
+`NOTION_<NAME>_DB_ID` config var + 3 wrapper functions + 3 tools + a permission
++ a prompt blurb. ~15 minutes.

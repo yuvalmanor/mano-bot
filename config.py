@@ -58,6 +58,8 @@ NOTION_BUCKETS_DB_ID = os.environ["NOTION_BUCKETS_DB_ID"]
 # (functions return "not_configured") until this is set in the Railway env, so
 # the code can deploy before the DB id exists. Set it after creating the DB.
 NOTION_KNOWLEDGE_DB_ID = os.getenv("NOTION_KNOWLEDGE_DB_ID", "")
+# Phase-2 Recipes DB (Task 14). Optional, same pattern as the Knowledge DB.
+NOTION_RECIPES_DB_ID = os.getenv("NOTION_RECIPES_DB_ID", "")
 
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_TOKEN_PERSONAL = os.environ["GOOGLE_TOKEN_PERSONAL"]

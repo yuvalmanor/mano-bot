@@ -219,6 +219,77 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "notion_save_recipe",
+        "description": (
+            "Save a recipe to the Recipes DB — Yuval's personal recipe store "
+            "(separate from the Knowledge DB and Idea Lab). Use when the user "
+            "wants to keep a recipe, whether from a link or pasted text. If a "
+            "link is given, FIRST call fetch_url to read it, then put the "
+            "ingredients + instructions into `content`, propose a title and "
+            "tags (main ingredient / dish type), and confirm before saving. "
+            "Always confirm before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "The recipe name."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Tags by main ingredient / dish type, e.g. ['Chicken'], "
+                        "['Pasta','Sauces']. Common: Salad, Soup, Vegetables, "
+                        "Chicken, Seafood, Beef, Pasta, Sauces (new ones are fine)."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Ingredients + instructions, saved to the page body.",
+                },
+                "source_url": {
+                    "type": "string",
+                    "description": "Source link, if the recipe came from a web page.",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "notion_list_recipes",
+        "description": (
+            "List recipes from the Recipes DB, grouped by tag. Optional `tag` "
+            "filter (e.g. 'Chicken'). Use to browse saved recipes before "
+            "drilling into one with notion_get_recipe."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tag": {"type": "string", "description": "Tag to filter by, e.g. 'Chicken'."},
+            },
+        },
+    },
+    {
+        "name": "notion_get_recipe",
+        "description": (
+            "Read one full recipe (its tags, source link, ingredients + steps "
+            "from the page body, and comments), matched by fuzzy title "
+            "(case-insensitive substring). Use to answer 'what's in that X "
+            "recipe' / 'show me the X recipe'. If it returns 'ambiguous', ask "
+            "which one. If saved content isn't enough and a source link is "
+            "present, call fetch_url on it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Substring of the recipe title (case-insensitive).",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
         "name": "fetch_url",
         "description": (
             "Fetch a web page (or any http/https link) and return its readable "

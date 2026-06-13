@@ -473,3 +473,70 @@ async def test_agent_knowledge_denied_for_eden() -> None:
         reply = await run(phone, "save this")
         assert reply == "אין הרשאה"
         mock_save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatch_save_and_get_recipe() -> None:
+    """Yuval has 'recipes' — save then read back a recipe."""
+    from claude_agent.agent import CONVERSATION_HISTORY
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972542159121"
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch("claude_agent.agent.notion.add_recipe", new=AsyncMock(return_value="ok")) as mock_save,
+        patch(
+            "claude_agent.agent.notion.get_recipe",
+            new=AsyncMock(return_value=("ok", "# Lentil soup\n\nTags: Soup")),
+        ) as mock_get,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        responses = [
+            _response("tool_use", [_tool_use_block(
+                "t1", "notion_save_recipe",
+                {"title": "Lentil soup", "tags": ["Soup"],
+                 "content": "Simmer lentils", "source_url": "https://x.com/r"},
+            )]),
+            _response("tool_use", [_tool_use_block(
+                "t2", "notion_get_recipe", {"title": "lentil"})]),
+            _response("end_turn", [_text_block("Simmer lentils 30 min")]),
+        ]
+        mock_client.messages.create = AsyncMock(side_effect=responses)
+
+        reply = await run(phone, "save this recipe then read it")
+        assert reply == "Simmer lentils 30 min"
+        mock_save.assert_awaited_once_with(
+            title="Lentil soup",
+            tags=["Soup"],
+            content="Simmer lentils",
+            source_url="https://x.com/r",
+        )
+        mock_get.assert_awaited_once_with(title="lentil")
+
+
+@pytest.mark.asyncio
+async def test_agent_recipe_denied_for_eden() -> None:
+    """Eden lacks 'recipes' — notion_save_recipe must not run."""
+    from claude_agent.agent import CONVERSATION_HISTORY
+
+    CONVERSATION_HISTORY.clear()
+    phone = "+972546900908"  # Eden
+
+    with (
+        patch("claude_agent.agent.AsyncClient") as mock_client_class,
+        patch("claude_agent.agent.notion.add_recipe", new=AsyncMock(return_value="ok")) as mock_save,
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        responses = [
+            _response("tool_use", [_tool_use_block(
+                "t1", "notion_save_recipe", {"title": "x"})]),
+            _response("end_turn", [_text_block("אין הרשאה")]),
+        ]
+        mock_client.messages.create = AsyncMock(side_effect=responses)
+
+        reply = await run(phone, "save this recipe")
+        assert reply == "אין הרשאה"
+        mock_save.assert_not_awaited()

@@ -572,12 +572,14 @@ async def _fetch_comments_text(page_id: str) -> str:
     return "\n".join(lines)
 
 
-# ---- Knowledge DB (Phase 2) ------------------------------------------------
-# A dedicated database for saved articles / links / references, separate from
-# the Idea Lab. Schema: Title (title) / Topic (multi_select) / Source (url) /
-# Saved (created_time). Distilled content + link live in the page body. All
-# functions short-circuit to "not_configured" until NOTION_KNOWLEDGE_DB_ID is
-# set, so the feature is inert on deploys where the DB doesn't exist yet.
+# ---- Collection DBs (Phase 2+) ---------------------------------------------
+# Generic "save / list / read" store backed by a Notion DB with the shape:
+#   Title (title) / <tag_prop> (multi_select) / Source (url) / Saved
+#   (created_time); distilled content + link live in the page body.
+# The Knowledge DB and Recipes DB are thin wrappers over these helpers, each
+# bound to its own DB id + tag property. Every function short-circuits to
+# "not_configured" until that DB's env var is set, so the feature is inert on
+# deploys where the DB doesn't exist yet.
 
 
 def _extract_multi_select(page: dict, prop_name: str) -> list[str]:
@@ -589,36 +591,36 @@ def _extract_url(page: dict, prop_name: str) -> str:
     return (page.get("properties", {}).get(prop_name) or {}).get("url") or ""
 
 
-async def add_knowledge(
+async def _collection_add(
+    db_id: str,
+    action: str,
     title: str,
-    topics: list[str] | None = None,
-    content: str | None = None,
-    source_url: str | None = None,
+    tag_prop: str,
+    tags: list[str] | None,
+    content: str | None,
+    source_url: str | None,
 ) -> str:
-    """Save an item to the Knowledge DB.
+    """Create an item in a collection DB.
 
     Returns ``"ok"`` | ``"duplicate"`` | ``"error"`` | ``"not_configured"``.
-    ``topics`` become Topic multi_select options (auto-created by Notion);
-    ``content`` + ``source_url`` populate the page body (reuses the idea body
-    builder: a source bookmark + chunked content paragraphs).
+    ``tags`` become ``tag_prop`` multi_select options (auto-created by Notion);
+    ``content`` + ``source_url`` populate the page body (source bookmark +
+    chunked content paragraphs).
     """
-    if not config.NOTION_KNOWLEDGE_DB_ID:
-        log_action("", "notion_add_knowledge", "", "not_configured")
+    if not db_id:
+        log_action("", action, "", "not_configured")
         return "not_configured"
-    if await _recent_duplicate_exists(config.NOTION_KNOWLEDGE_DB_ID, "Title", title):
-        log_action("", "notion_add_knowledge", "", "duplicate")
+    if await _recent_duplicate_exists(db_id, "Title", title):
+        log_action("", action, "", "duplicate")
         return "duplicate"
 
     properties: dict = {"Title": _title_prop(title)}
-    if topics:
-        properties["Topic"] = {"multi_select": [{"name": t} for t in topics]}
+    if tags:
+        properties[tag_prop] = {"multi_select": [{"name": t} for t in tags]}
     if source_url:
         properties["Source"] = {"url": source_url}
 
-    payload: dict = {
-        "parent": {"database_id": config.NOTION_KNOWLEDGE_DB_ID},
-        "properties": properties,
-    }
+    payload: dict = {"parent": {"database_id": db_id}, "properties": properties}
     body_blocks = _idea_body_blocks(content, source_url)
     if body_blocks:
         payload["children"] = body_blocks
@@ -629,76 +631,87 @@ async def add_knowledge(
                 f"{NOTION_API}/pages", headers=_headers(), json=payload
             )
         if resp.status_code >= 400:
-            logger.error("Notion add_knowledge HTTP %s", resp.status_code)
-            log_action("", "notion_add_knowledge", "", f"http_{resp.status_code}")
+            logger.error("Notion %s HTTP %s", action, resp.status_code)
+            log_action("", action, "", f"http_{resp.status_code}")
             return "error"
-        log_action("", "notion_add_knowledge", f"topics={topics or []}", "ok")
+        log_action("", action, f"tags={tags or []}", "ok")
         return "ok"
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
-        logger.error("Notion add_knowledge error: %s", exc.__class__.__name__)
-        log_action("", "notion_add_knowledge", "", "error")
+        logger.error("Notion %s error: %s", action, exc.__class__.__name__)
+        log_action("", action, "", "error")
         return "error"
 
 
-async def list_knowledge(topic: str | None = None) -> str:
-    """Return Knowledge DB items grouped by topic. Empty string on error/none."""
-    if not config.NOTION_KNOWLEDGE_DB_ID:
-        log_action("", "notion_list_knowledge", "", "not_configured")
+async def _collection_list(
+    db_id: str,
+    action: str,
+    tag_prop: str,
+    emoji: str,
+    no_tag_label: str,
+    tag_filter: str | None,
+) -> str:
+    """Return collection items grouped by tag. Empty string on error/none."""
+    if not db_id:
+        log_action("", action, "", "not_configured")
         return ""
 
     payload: dict = {"page_size": 100}
-    if topic:
-        payload["filter"] = {"property": "Topic", "multi_select": {"contains": topic}}
+    if tag_filter:
+        payload["filter"] = {"property": tag_prop, "multi_select": {"contains": tag_filter}}
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.post(
-                f"{NOTION_API}/databases/{config.NOTION_KNOWLEDGE_DB_ID}/query",
+                f"{NOTION_API}/databases/{db_id}/query",
                 headers=_headers(),
                 json=payload,
             )
         if resp.status_code >= 400:
-            logger.error("Notion list_knowledge HTTP %s", resp.status_code)
-            log_action("", "notion_list_knowledge", "", f"http_{resp.status_code}")
+            logger.error("Notion %s HTTP %s", action, resp.status_code)
+            log_action("", action, "", f"http_{resp.status_code}")
             return ""
         pages = resp.json().get("results", [])
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
-        logger.error("Notion list_knowledge error: %s", exc.__class__.__name__)
-        log_action("", "notion_list_knowledge", "", "error")
+        logger.error("Notion %s error: %s", action, exc.__class__.__name__)
+        log_action("", action, "", "error")
         return ""
 
     if not pages:
-        log_action("", "notion_list_knowledge", "", "empty")
+        log_action("", action, "", "empty")
         return ""
 
-    by_topic: dict[str, list[str]] = {}
+    by_tag: dict[str, list[str]] = {}
     for page in pages:
         title = _extract_plain_title(page, "Title") or "(ללא שם)"
-        topics = _extract_multi_select(page, "Topic") or ["ללא נושא"]
-        for t in topics:
-            by_topic.setdefault(t, []).append(title)
+        for t in _extract_multi_select(page, tag_prop) or [no_tag_label]:
+            by_tag.setdefault(t, []).append(title)
 
     lines: list[str] = []
-    for t in sorted(by_topic.keys()):
-        lines.append(f"📚 {t}")
-        for title in by_topic[t]:
+    for t in sorted(by_tag.keys()):
+        lines.append(f"{emoji} {t}")
+        for title in by_tag[t]:
             lines.append(f"  • {title}")
         lines.append("")
 
-    log_action("", "notion_list_knowledge", f"count={len(pages)}", "ok")
+    log_action("", action, f"count={len(pages)}", "ok")
     return "\n".join(lines).rstrip()
 
 
-async def get_knowledge(title: str) -> tuple[str, str]:
-    """Read one Knowledge DB item by fuzzy title.
+async def _collection_get(
+    db_id: str,
+    action: str,
+    title: str,
+    tag_prop: str,
+    tag_label: str,
+) -> tuple[str, str]:
+    """Read one collection item by fuzzy title.
 
     Returns ``(status, content)`` with status in
     ``{"ok","not_found","ambiguous","error","not_configured"}``. On a single
-    match, ``content`` = Topic + Source + page body + comments. Same fuzzy
-    substring match as ``get_idea``.
+    match, ``content`` = tags + Source + page body + comments.
     """
-    if not config.NOTION_KNOWLEDGE_DB_ID:
-        log_action("", "notion_get_knowledge", "", "not_configured")
+    if not db_id:
+        log_action("", action, "", "not_configured")
         return ("not_configured", "")
 
     needle = title.strip().lower()
@@ -706,18 +719,18 @@ async def get_knowledge(title: str) -> tuple[str, str]:
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.post(
-                f"{NOTION_API}/databases/{config.NOTION_KNOWLEDGE_DB_ID}/query",
+                f"{NOTION_API}/databases/{db_id}/query",
                 headers=_headers(),
                 json={"page_size": 100},
             )
         if resp.status_code >= 400:
-            logger.error("Notion get_knowledge query HTTP %s", resp.status_code)
-            log_action("", "notion_get_knowledge", f"title={title}", f"http_{resp.status_code}")
+            logger.error("Notion %s query HTTP %s", action, resp.status_code)
+            log_action("", action, f"title={title}", f"http_{resp.status_code}")
             return ("error", "")
         pages = resp.json().get("results", [])
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
-        logger.error("Notion get_knowledge query error: %s", exc.__class__.__name__)
-        log_action("", "notion_get_knowledge", f"title={title}", "error")
+        logger.error("Notion %s query error: %s", action, exc.__class__.__name__)
+        log_action("", action, f"title={title}", "error")
         return ("error", "")
 
     matches: list[tuple[str, str]] = []
@@ -727,19 +740,19 @@ async def get_knowledge(title: str) -> tuple[str, str]:
             matches.append((page.get("id", ""), page_title))
 
     if not matches:
-        log_action("", "notion_get_knowledge", f"title={title}", "not_found")
+        log_action("", action, f"title={title}", "not_found")
         return ("not_found", "")
     if len(matches) > 1:
-        log_action("", "notion_get_knowledge", f"title={title}", "ambiguous")
+        log_action("", action, f"title={title}", "ambiguous")
         return ("ambiguous", " | ".join(t for _, t in matches))
 
     page_id, matched_title = matches[0]
     matched_page = next(p for p in pages if p.get("id") == page_id)
 
     sections: list[str] = [f"# {matched_title}"]
-    topics = _extract_multi_select(matched_page, "Topic")
-    if topics:
-        sections.append("Topics: " + ", ".join(topics))
+    tags = _extract_multi_select(matched_page, tag_prop)
+    if tags:
+        sections.append(f"{tag_label}: " + ", ".join(tags))
     source = _extract_url(matched_page, "Source")
     if source:
         sections.append(f"Source: {source}")
@@ -752,8 +765,69 @@ async def get_knowledge(title: str) -> tuple[str, str]:
     if comments:
         sections.append("Comments:\n" + comments)
 
-    log_action("", "notion_get_knowledge", f"title={matched_title}", "ok")
+    log_action("", action, f"title={matched_title}", "ok")
     return ("ok", "\n\n".join(sections))
+
+
+# ---- Knowledge DB ----------------------------------------------------------
+# Saved articles / links / references, tagged by free-form Topic.
+
+
+async def add_knowledge(
+    title: str,
+    topics: list[str] | None = None,
+    content: str | None = None,
+    source_url: str | None = None,
+) -> str:
+    return await _collection_add(
+        config.NOTION_KNOWLEDGE_DB_ID, "notion_add_knowledge",
+        title, "Topic", topics, content, source_url,
+    )
+
+
+async def list_knowledge(topic: str | None = None) -> str:
+    return await _collection_list(
+        config.NOTION_KNOWLEDGE_DB_ID, "notion_list_knowledge",
+        "Topic", "📚", "ללא נושא", topic,
+    )
+
+
+async def get_knowledge(title: str) -> tuple[str, str]:
+    return await _collection_get(
+        config.NOTION_KNOWLEDGE_DB_ID, "notion_get_knowledge",
+        title, "Topic", "Topics",
+    )
+
+
+# ---- Recipes DB ------------------------------------------------------------
+# Saved recipes (ingredients + steps in the page body), tagged by Tags
+# (main ingredient / dish type, e.g. Chicken, Pasta, Soup).
+
+
+async def add_recipe(
+    title: str,
+    tags: list[str] | None = None,
+    content: str | None = None,
+    source_url: str | None = None,
+) -> str:
+    return await _collection_add(
+        config.NOTION_RECIPES_DB_ID, "notion_add_recipe",
+        title, "Tags", tags, content, source_url,
+    )
+
+
+async def list_recipes(tag: str | None = None) -> str:
+    return await _collection_list(
+        config.NOTION_RECIPES_DB_ID, "notion_list_recipes",
+        "Tags", "🍳", "ללא תגית", tag,
+    )
+
+
+async def get_recipe(title: str) -> tuple[str, str]:
+    return await _collection_get(
+        config.NOTION_RECIPES_DB_ID, "notion_get_recipe",
+        title, "Tags", "Tags",
+    )
 
 
 async def archive_task(title: str) -> tuple[str, list[str]]:

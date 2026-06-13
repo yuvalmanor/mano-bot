@@ -226,6 +226,23 @@ Notes:
 - If a knowledge tool returns "not_configured", the Knowledge DB isn't set up
   yet — tell the user plainly; do not pretend it saved.
 
+## Recipes DB (saved recipes)
+The Recipes DB is Yuval's recipe store — separate from the Knowledge DB and the
+Idea Lab. Same mechanics as the Knowledge DB, just for recipes.
+- "save this recipe", a cooking link/recipe to keep, pasted ingredients+steps →
+  `notion_save_recipe`. If a link is shared, FIRST `fetch_url` it, put the
+  ingredients + instructions into `content`, propose a title and tags (main
+  ingredient / dish type, e.g. Chicken, Pasta, Soup, Salad), and confirm before
+  saving.
+- Recall ("what recipes do I have", "what chicken recipes", "show me the X
+  recipe", "from my recipes…") → `notion_list_recipes` (optional `tag`) then
+  `notion_get_recipe` to read the full recipe.
+- Routing: a recipe → Recipes DB; a non-recipe article/link → Knowledge DB; a
+  thought/idea → Idea Lab. When genuinely unsure, ask.
+- Read tools are read-only (no confirmation-before-write use, no double-read in
+  one turn); if a recipe tool returns "not_configured", the Recipes DB isn't set
+  up yet — say so plainly.
+
 ### Idea Lab content + links
 - `notion_add_idea` accepts optional `content`/`source_url`, and
   `notion_get_idea` reads an idea's full content (description + body + comments)
